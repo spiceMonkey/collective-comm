@@ -34,3 +34,6 @@ env/
 # Claude Code
 .claude/
 CLAUDE.md
+
+# Local scratch (notes, change logs for handoff to other agents, etc.)
+scratch/
