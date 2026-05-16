@@ -1,0 +1,29 @@
+[book]
+title = "Collective Communication Cost Modeling"
+authors = ["Yue Lu"]
+description = "A first-principles tutorial on collective-communication cost modeling for modern GPU and TPU fabrics."
+src = "documentation/modeling"
+language = "en"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/spiceMonkey/collective-comm"
+edit-url-template = "https://github.com/spiceMonkey/collective-comm/edit/main/{path}"
+additional-js = ["theme/mathjax-config.js"]
+additional-css = ["theme/css/custom.css"]
+no-section-label = false
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.search]
+enable = true
+limit-results = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 2
+boost-paragraph = 1
+expand = true
+heading-split-level = 2

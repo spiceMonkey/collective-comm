@@ -1,0 +1,18 @@
+/* Widen the content area so wide tables have room to breathe.
+   Default is 750px, which squeezes the File-index table in README.md. */
+:root {
+  --content-max-width: 1024px;
+}
+
+/* Keep filenames-in-backticks on a single line inside tables so the
+   adjacent text column (e.g. Topic) gets the remaining width. */
+.content table td code,
+.content table th code {
+  white-space: nowrap;
+}
+
+/* Top-align cells so multi-line rows look tidy. */
+.content table td,
+.content table th {
+  vertical-align: top;
+}
