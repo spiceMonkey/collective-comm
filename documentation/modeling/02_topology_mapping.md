@@ -793,10 +793,13 @@ $$n_\alpha = \underbrace{\sum_{i=1}^{k} (d_i - 1)}_{\text{k RS phases}} \\;+\\; 
   $$n_\alpha = \sum_{i=1}^{3}(2 - 1) \\;+\\; \sum_{i=1}^{3}(2 - 1) \\;=\\; 3 + 3 \\;=\\; 6$$
   (3 RS hops + 3 AG hops; matches the §3.1 savings comparison.)
 
-- **8×8×8 torus** ($k = 3$, all $d_i = 8$):
+- **4×4×4 torus — TPU v4 / v5p single-rack cube** ($N = 64$, $k = 3$, all $d_i = 4$):
+  $$n_\alpha = \sum_{i=1}^{3}(4 - 1) \\;+\\; \sum_{i=1}^{3}(4 - 1) \\;=\\; 9 + 9 \\;=\\; 18$$
+
+- **8×8×8 torus — TPU v4 / v5p multi-rack pod slice** ($N = 512$, used as the canonical anchor in §5 and `05_contention_and_congestion.md` §6):
   $$n_\alpha = \sum_{i=1}^{3}(8 - 1) \\;+\\; \sum_{i=1}^{3}(8 - 1) \\;=\\; 21 + 21 \\;=\\; 42$$
 
-- **16×16×16 TPU v5p** ($k = 3$, all $d_i = 16$):
+- **16×16×16 — TPU v4 / v5p full pod** ($N = 4096$, $k = 3$, all $d_i = 16$):
   $$n_\alpha = \sum_{i=1}^{3}(16 - 1) \\;+\\; \sum_{i=1}^{3}(16 - 1) \\;=\\; 45 + 45 \\;=\\; 90$$
 
 - **Asymmetric 16×16×4** ($k = 3$, $d_1 = d_2 = 16$, $d_3 = 4$):
