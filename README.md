@@ -4,14 +4,6 @@ A first-principles framework for analyzing **collective-communication trade-offs
 
 **📖 Read the tutorial online:** <https://spicemonkey.github.io/collective-comm/>
 
-To build the book locally:
-
-```bash
-brew install mdbook
-mdbook serve       # live preview at http://localhost:3000
-mdbook build       # static HTML in book/
-```
-
 If you've ever wondered:
 - *Why does NCCL pick DBT for small messages but ring for large ones?*
 - *What does NVLS / SHARP actually buy you over a software all-reduce?*
