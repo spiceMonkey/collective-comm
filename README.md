@@ -2,8 +2,6 @@
 
 A first-principles framework for analyzing **collective-communication trade-offs** in distributed AI clusters: α-β cost models, topology-aware algorithms, in-network collectives, and contention coefficients. Designed as a **tutorial + cost-analysis toolkit** — not a runtime library.
 
-**📖 Read the tutorial online:** <https://spicemonkey.github.io/collective-comm/>
-
 If you've ever wondered:
 - *Why does NCCL pick DBT for small messages but ring for large ones?*
 - *What does NVLS / SHARP actually buy you over a software all-reduce?*
@@ -11,6 +9,8 @@ If you've ever wondered:
 - *How much performance does fat-tree oversubscription cost in practice?*
 
 …this repo gives you the equations, calibrations, and runnable notebooks to answer them.
+
+**📖 Read the tutorial online:** <https://spicemonkey.github.io/collective-comm/>
 
 ---
 
@@ -162,10 +162,3 @@ The notebooks reproduce these exactly — useful as test oracles when changing c
 - **η profiles are per-fabric calibrations**, not free dials. `nvls` only applies to INC AR; `torus` only to torus algorithms; `crossbar` to software AR on NVSwitch. See `documentation/modeling/05_contention_and_congestion.md` §4.1.
 - **Pipelined vs non-pipelined** is exposed as a `pipelined: bool = False` flag on BC / Reduce / DBT AR. Default = literal P=1 schedule; `pipelined=True` = the asymptotic P→P\* limit (Appendix C of `documentation/modeling/01_collective_algorithms.md`).
 
----
-
-## Status
-
-- Cost primitives covering BC, Reduce, AR, AG, RS, A2A across star / torus / mesh / fat-tree / in-network paths.
-- Five tutorial notebooks (00–04) reproducing the canonical anchors and sweeping the four major trade-off axes (M, G, η, L).
-- Regression-anchored against `documentation/modeling/04_in_network_collectives.md` §3.1 and `documentation/modeling/05_contention_and_congestion.md` §6.1.
