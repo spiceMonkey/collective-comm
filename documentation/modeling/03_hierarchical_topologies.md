@@ -624,7 +624,7 @@ Two complementary views capture how each NVL72's 72 NICs reach IB leaf-ToRs: **f
 
 ![Rail-optimized scale-out, reduced to 2 racks of 4 GPUs: each GPU's NIC lands on its own rail ToR](assets/rail_optimized_scale_out.svg)
 
-*The same wiring rule at toy scale — 2 racks × 4 GPUs, one ToR per rail, no spine needed. The NVL72 version below bundles 18 NICs per rail per pod.*
+*Figure: the same wiring rule at toy scale — 2 racks × 4 GPUs, one ToR per rail, no spine needed. The NVL72 version below bundles 18 NICs per rail per pod.*
 
 **View 1 — Fan-out (one pod → 4 rail-ToRs).** NICs at slot $i$ across every tray (one per tray × 18 trays = 18 NICs) bundle together and exit the rack to the rail-$i$ leaf-ToR; the same pattern at slots 1, 2, 3 fills the other 3 rail-ToRs. **Each pod is striped across 4 rail-ToRs, contributing 18 NICs to each.**
 

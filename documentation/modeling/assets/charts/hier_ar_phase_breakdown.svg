@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="633.459269pt" height="317.550641pt" viewBox="0 0 633.459269 317.550641" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="646.059269pt" height="317.550641pt" viewBox="0 0 646.059269 317.550641" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -21,8 +21,8 @@
  <g id="figure_1">
   <g id="patch_1">
    <path d="M 0 317.550641 
-L 633.459269 317.550641 
-L 633.459269 0 
+L 646.059269 317.550641 
+L 646.059269 0 
 L 0 0 
 z
 " style="fill: #ffffff"/>
@@ -1946,15 +1946,15 @@ z
    <g id="legend_1">
     <g id="patch_36">
      <path d="M 539.061925 36.376797 
-L 557.061925 36.376797 
-L 557.061925 30.076797 
+L 569.661925 36.376797 
+L 569.661925 30.076797 
 L 539.061925 30.076797 
 z
 " style="fill: #2a78d6; stroke: #ffffff; stroke-width: 1.5; stroke-linejoin: miter"/>
     </g>
     <g id="text_24">
      <!-- inner RS -->
-     <g style="fill: #0b0b0b" transform="translate(564.261925 36.376797) scale(0.09 -0.09)">
+     <g style="fill: #0b0b0b" transform="translate(576.861925 36.376797) scale(0.09 -0.09)">
       <defs>
        <path id="DejaVuSans-52" d="M 2841 2188 
 Q 3044 2119 3236 1894 
@@ -2028,15 +2028,15 @@ z
     </g>
     <g id="patch_37">
      <path d="M 539.061925 49.587109 
-L 557.061925 49.587109 
-L 557.061925 43.287109 
+L 569.661925 49.587109 
+L 569.661925 43.287109 
 L 539.061925 43.287109 
 z
 " style="fill: #eb6834; stroke: #ffffff; stroke-width: 1.5; stroke-linejoin: miter"/>
     </g>
     <g id="text_25">
      <!-- outer sub-AR -->
-     <g style="fill: #0b0b0b" transform="translate(564.261925 49.587109) scale(0.09 -0.09)">
+     <g style="fill: #0b0b0b" transform="translate(576.861925 49.587109) scale(0.09 -0.09)">
       <defs>
        <path id="DejaVuSans-2d" d="M 313 2009 
 L 1997 2009 
@@ -2078,15 +2078,15 @@ z
     </g>
     <g id="patch_38">
      <path d="M 539.061925 62.797422 
-L 557.061925 62.797422 
-L 557.061925 56.497422 
+L 569.661925 62.797422 
+L 569.661925 56.497422 
 L 539.061925 56.497422 
 z
 " style="fill: #1baf7a; stroke: #ffffff; stroke-width: 1.5; stroke-linejoin: miter"/>
     </g>
     <g id="text_26">
      <!-- inner AG -->
-     <g style="fill: #0b0b0b" transform="translate(564.261925 62.797422) scale(0.09 -0.09)">
+     <g style="fill: #0b0b0b" transform="translate(576.861925 62.797422) scale(0.09 -0.09)">
       <defs>
        <path id="DejaVuSans-47" d="M 3809 666 
 L 3809 1919 

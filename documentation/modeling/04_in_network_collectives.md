@@ -391,7 +391,7 @@ At small $M$ the $\alpha$-term collapse dominates: DBT still needs 18 synchroniz
 
 ![Effective all-reduce goodput M/t versus payload: pipelined software schedules approach BW/2, INC approaches BW](assets/charts/ar_goodput_vs_payload.svg)
 
-*Figure: The same sweep as effective goodput $M/t$. Pipelined DBT, Rabenseifner and the torus approach $\mathrm{BW}/2$ within the plotted range and INC approaches $\mathrm{BW}$; ring is still at 366 GB/s at 1 GB because its $\alpha$ term has not yet amortized, and non-pipelined DBT (dotted) flattens at $\mathrm{BW}/18$. From `code/notebooks/01_payload_sweep.ipynb`.*
+*Figure: the same sweep as effective goodput $M/t$. Pipelined DBT, Rabenseifner and the torus approach $\mathrm{BW}/2$ within the plotted range and INC approaches $\mathrm{BW}$; ring is still at 366 GB/s at 1 GB because its $\alpha$ term has not yet amortized, and non-pipelined DBT (dotted) flattens at $\mathrm{BW}/18$. From `code/notebooks/01_payload_sweep.ipynb`.*
 
 The ceilings in this section assume frictionless cut-through, no ALU or multicast contention, and no scheduler overhead. `05_contention_and_congestion.md` §5 re-runs the same $N = 512$ ladder under realistic $\eta$ and quantifies how much of each ceiling survives in deployment.
 

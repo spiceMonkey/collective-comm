@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
   "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="664.678019pt" height="317.550641pt" viewBox="0 0 664.678019 317.550641" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="677.278019pt" height="317.550641pt" viewBox="0 0 677.278019 317.550641" xmlns="http://www.w3.org/2000/svg" version="1.1">
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -21,8 +21,8 @@
  <g id="figure_1">
   <g id="patch_1">
    <path d="M 0 317.550641 
-L 664.678019 317.550641 
-L 664.678019 0 
+L 677.278019 317.550641 
+L 677.278019 0 
 L 0 0 
 z
 " style="fill: #ffffff"/>
@@ -2161,13 +2161,13 @@ z
    <g id="legend_1">
     <g id="line2d_106">
      <path d="M 531.996925 33.226797 
-L 540.996925 33.226797 
-L 549.996925 33.226797 
+L 547.296925 33.226797 
+L 562.596925 33.226797 
 " style="fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linecap: round"/>
     </g>
     <g id="text_15">
      <!-- ring AG -->
-     <g style="fill: #0b0b0b" transform="translate(557.196925 36.376797) scale(0.09 -0.09)">
+     <g style="fill: #0b0b0b" transform="translate(569.796925 36.376797) scale(0.09 -0.09)">
       <defs>
        <path id="DejaVuSans-72" d="M 2631 2963 
 Q 2534 3019 2420 3045 
@@ -2305,13 +2305,13 @@ z
     </g>
     <g id="line2d_107">
      <path d="M 531.996925 46.437109 
-L 540.996925 46.437109 
-L 549.996925 46.437109 
+L 547.296925 46.437109 
+L 562.596925 46.437109 
 " style="fill: none; stroke: #eb6834; stroke-width: 2; stroke-linecap: round"/>
     </g>
     <g id="text_16">
      <!-- rec-doubling / PAT AG -->
-     <g style="fill: #0b0b0b" transform="translate(557.196925 49.587109) scale(0.09 -0.09)">
+     <g style="fill: #0b0b0b" transform="translate(569.796925 49.587109) scale(0.09 -0.09)">
       <defs>
        <path id="DejaVuSans-63" d="M 3122 3366 
 L 3122 2828 
@@ -2428,13 +2428,13 @@ z
     </g>
     <g id="line2d_108">
      <path d="M 531.996925 59.647422 
-L 540.996925 59.647422 
-L 549.996925 59.647422 
+L 547.296925 59.647422 
+L 562.596925 59.647422 
 " style="fill: none; stroke: #1baf7a; stroke-width: 2; stroke-linecap: round"/>
     </g>
     <g id="text_17">
      <!-- INC AG -->
-     <g style="fill: #0b0b0b" transform="translate(557.196925 62.797422) scale(0.09 -0.09)">
+     <g style="fill: #0b0b0b" transform="translate(569.796925 62.797422) scale(0.09 -0.09)">
       <defs>
        <path id="DejaVuSans-49" d="M 628 4666 
 L 1259 4666 
@@ -2488,13 +2488,13 @@ z
     </g>
     <g id="line2d_109">
      <path d="M 531.996925 72.857734 
-L 540.996925 72.857734 
-L 549.996925 72.857734 
+L 547.296925 72.857734 
+L 562.596925 72.857734 
 " style="fill: none; stroke: #e87ba4; stroke-width: 2; stroke-linecap: round"/>
     </g>
     <g id="text_18">
      <!-- torus 8³ AG -->
-     <g style="fill: #0b0b0b" transform="translate(557.196925 76.007734) scale(0.09 -0.09)">
+     <g style="fill: #0b0b0b" transform="translate(569.796925 76.007734) scale(0.09 -0.09)">
       <defs>
        <path id="DejaVuSans-b3" d="M 1638 3500 
 Q 1925 3444 2083 3273 

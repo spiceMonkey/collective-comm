@@ -3,9 +3,8 @@
 matplotlib is imported inside the functions, so importing ``util`` stays
 stdlib-only. The colours are a validated categorical order (adjacent pairs
 separate under simulated colour-vision deficiency). Three of them sit below
-3:1 contrast on white, so every chart keeps a legend, and the plotted values
-are available from the DataFrames the notebooks build and from the tables in
-``documentation/modeling/``.
+3:1 contrast on white, so every chart keeps a legend; exact values come from
+the cost functions the notebooks call (most sweeps are also kept in DataFrames).
 """
 
 import re
@@ -37,7 +36,7 @@ _FAMILY_KEYWORDS = (
     ("inc", ("inc", "nvls", "hardware")),
     ("torus", ("torus",)),
     ("rabenseifner", ("rabenseifner",)),
-    ("tree", ("dbt", "pipelined", "rec-doubling", "rec-halving", "pat", "bruck")),
+    ("tree", ("dbt", "rec-doubling", "rec-halving", "pat", "bruck")),
     ("ring", ("ring", "pairwise")),
 )
 
@@ -63,6 +62,13 @@ def linestyle_for(label: str) -> str:
     if "rabenseifner" in text:
         return "--"     # lies on top of pipelined DBT
     return "-"
+
+
+def tex(text: str) -> str:
+    """Typeset η_α / η_β (and η_β_hw) with real subscripts in chart text."""
+    return (text.replace("η_β_hw", r"$\eta_\beta^{\mathrm{hw}}$")
+                .replace("η_β", r"$\eta_\beta$")
+                .replace("η_α", r"$\eta_\alpha$"))
 
 
 def apply() -> None:
@@ -104,6 +110,7 @@ def apply() -> None:
         "ytick.labelsize": 9,
         "legend.frameon": False,
         "legend.fontsize": 9,
+        "legend.handlelength": 3.4,   # long enough to show a dashed or dotted line
     })
 
 

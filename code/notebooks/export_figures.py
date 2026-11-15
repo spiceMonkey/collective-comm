@@ -76,8 +76,7 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     plt.rcParams["svg.hashsalt"] = "collective_comm"  # reproducible element ids
     os.chdir(HERE)
-    # Make `core` and `util` importable whatever the checkout directory is called
-    # (the notebooks' own setup cells look for a parent named `collective_comm`).
+    # Make `core` and `util` importable without relying on the notebooks' setup cells.
     sys.path.insert(0, str(HERE.parent))
     for nb_name, names in FIGURES.items():
         export(nb_name, names)

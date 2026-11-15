@@ -1127,11 +1127,11 @@ Six observations that the rest of this series builds on:
 
 ![All-reduce cost versus group size at M = 16 MB for ring, pipelined DBT, Rabenseifner, INC and a 3-D torus](assets/charts/ar_cost_vs_group_size.svg)
 
-*Figure: AR cost versus group size $N$ at $M = 16\\,\mathrm{MB}$ (ideal $\alpha$ / BW). Ring's $\alpha$ term grows linearly with the group. The cube-like 3-D torus grows as $\sum_i (d_i - 1)$: within $1.3\times$ of pipelined DBT up to $N = 512$, widening to $2\times$ at $N = 8192$. Rabenseifner (dashed) lies on top of pipelined DBT from $N = 16$ on — the two differ only by $(2M/\mathrm{BW})/N$. INC is flat. From `code/notebooks/02_group_topology_sweep.ipynb`.*
+*Figure: AR cost versus group size $N$ at $M = 16\\,\mathrm{MB}$ (ideal $\alpha$ / BW). Ring's $\alpha$ term grows linearly with the group. The cube-like 3-D torus grows as $\sum_i (d_i - 1)$: within $1.3\times$ of pipelined DBT up to $N = 512$, widening to $2\times$ at $N = 8192$. Rabenseifner (dashed) converges onto pipelined DBT — the two differ only by $(2M/\mathrm{BW})/N$: 2.2 μs at $N = 16$, under 1% from $N = 128$. INC is flat. From `code/notebooks/02_group_topology_sweep.ipynb`.*
 
 ![All-to-all cost versus group size at M = 16 MB for pairwise, Bruck, hardware A2A and a 3-D torus](assets/charts/a2a_cost_vs_group_size.svg)
 
-*Figure: A2A cost versus group size $N$ at $M = 16\\,\mathrm{MB}$. Pairwise pays $(N-1)\\,\alpha$. The torus pays only its diameter in $\alpha$; its BW coefficient is $1/2$ up to $N = 64$ (a size-2 dimension, or $d_{\max} = 4$) and $d_{\max}/8$ beyond, stepping up at $N = 128$, $1024$ and $8192$ as the largest dimension doubles. Shapes are the most cube-like factorization of each $N$. From `code/notebooks/02_group_topology_sweep.ipynb`.*
+*Figure: A2A cost versus group size $N$ at $M = 16\\,\mathrm{MB}$. Pairwise pays $(N-1)\\,\alpha$. The torus pays only its diameter in $\alpha$; its BW coefficient is $1/2$ up to $N = 64$ (a size-2 dimension, or $d_{\max} = 4$) and $d_{\max}/8$ beyond, stepping up at $N = 128$, $1024$ and $8192$ as the largest dimension doubles. Shapes are the most cube-like factorization of each $N$. The torus $\mathrm{BW}$ is per link and a rank has several links, which is why at small $N$ the torus sits below even hardware A2A on a single-port star. From `code/notebooks/02_group_topology_sweep.ipynb`.*
 
 ### 5.2 Limitations
 

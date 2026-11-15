@@ -164,7 +164,7 @@ The leaf row matches the single-tier NVSwitch-class floor (§4.1's crossbar row)
 
 ![All-reduce cost versus fat-tree oversubscription ratio for ring, pipelined DBT and INC](assets/charts/ar_fat_tree_oversubscription.svg)
 
-*Figure: the cap in action — the $N = 512$, $M = 16\\,\mathrm{MB}$ AR re-priced with $\eta_\beta = \min(\eta_\beta^{\mathrm{hw}}, 1/s)$ applied to the whole collective (an illustration, not a tiered model). INC's lower hardware $\eta_\beta$ (0.52) is the binding term until $s \approx 2$; at $s = 4$ INC costs 72 μs and DBT 151 μs. From `code/notebooks/03_eta_sensitivity.ipynb`.*
+*Figure: the cap in action — the $N = 512$, $M = 16\\,\mathrm{MB}$ AR re-priced with $\eta_\beta = \min(\eta_\beta^{\mathrm{hw\\,floor}}, 1/s)$ applied to the whole collective (an illustration, not a tiered model). INC's lower hardware $\eta_\beta$ (0.52) is the binding term until $s \approx 2$; at $s = 4$ INC costs 72 μs and DBT 151 μs. From `code/notebooks/03_eta_sensitivity.ipynb`.*
 
 **3-tier Clos.** A super-spine tier extends the table with a third row. If the super-spine is oversubscribed at $s_3$ independently of the spine-tier $s_2$, cross-pod BW compounds: $\eta_\beta^{\mathrm{cross\text{-}pod}} \leq 1/(s_2 \cdot s_3)$ when traffic crosses both tiers (the two ratios multiply). Most production Clos fabrics oversubscribe only one tier (typically the super-spine at $s_3 \in \\{2, 4\\}$), keeping the leaf-spine tier at $s_2 = 1$ — which pins $\eta_\beta^{\mathrm{cross\text{-}pod}} \leq 1/s_3$.
 

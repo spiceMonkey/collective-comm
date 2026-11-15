@@ -57,7 +57,7 @@ More detailed diagrams: [scale-up + scale-out paths for one server](documentatio
 ## Layout
 
 ```
-collective_comm/
+collective-comm/
 ├── documentation/modeling/   ← the spec — every cost formula derives here
 │   ├── 00_summary.md         ← entry point / cheatsheet
 │   ├── 01_collective_algorithms.md
