@@ -466,7 +466,7 @@ This is why MoE expert parallelism placement on the inner-most fabric (NVL72 NVS
 
 ![Hierarchical all-reduce cost versus number of outer groups for five outer-tier bandwidths](assets/charts/hier_ar_vs_outer_bw.svg)
 
-*Figure: the same sweep for five outer-tier bandwidths (other parameters as above). Because the outer phase carries only $ML/N$, the optimum does not move: $L = 8$ at every outer bandwidth below the inner tier's, and at parity (900 GB/s) $L = 8$ and $L = 16$ tie exactly at 126.5 μs. From `code/notebooks/04_hierarchical_partitioning.ipynb`.*
+*Figure: the same sweep for five outer-tier bandwidths (other parameters as above). Because the outer phase carries only $ML/N$, the optimum barely moves: $L = 8$ at every swept outer bandwidth from 10 to 450 GB/s, and at parity (900 GB/s) $L = 8$ and $L = 16$ tie exactly at 126.5 μs. From `code/notebooks/04_hierarchical_partitioning.ipynb`.*
 
 ---
 

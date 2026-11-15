@@ -556,8 +556,8 @@ def inc_a2a(M: float, G: int, alpha_s: float, bw_Bps: float) -> float:
     ``alpha_s`` is ``α_switch``; the factor of 2 is the same one-hop-in,
     one-hop-out traversal every INC primitive in this module pays.
 
-    Not on shipping NVSwitch Gen4 (NVL72) or Quantum-X800; software pairwise
-    is the only A2A path on those fabrics.
+    No hardware A2A is documented on NVSwitch (NVL72) or Quantum-X800; software
+    pairwise is the only documented A2A path on those fabrics.
     """
     if G <= 1:
         return 0.0
