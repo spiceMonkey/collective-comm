@@ -373,6 +373,10 @@ With distinct tier BWs the AG / RS BW term splits the same way as AR's, at half 
 
 For oversubscription $s > 1$ at any tier boundary, multiply the BW term by $s$ on traffic crossing that boundary — equivalent to $\eta_\beta \approx 1/s$ in `05_contention_and_congestion.md` §4.2. AG and RS cost **half of AR** on both α (one pass, not two) and BW (one telescoped pass, not the doubled AR round-trip); BC and Reduce stay at the $M/\mathrm{BW}$ pipelined ceiling regardless of tier count, with α scaling log-depth on each tier.
 
+![Hierarchical all-gather cost versus number of outer groups for the two phase orders, with all-reduce for reference](assets/charts/hier_ag_phase_order.svg)
+
+*Figure: why the order matters ($N = 512$, $M = 16\\,\mathrm{MB}$, inner $0.5\\,\mu$s / $900\\,\mathrm{GB/s}$, outer $1\\,\mu$s / $50\\,\mathrm{GB/s}$ — the notebook's parameters, with an illustrative outer $\alpha$ below §1.2's $\alpha_{\mathrm{leaf}}$ and $\alpha_{\mathrm{spine}}$; not the case study's). AG composed outer-first costs exactly half of AR at every $L$; composed inner-first it ships $(L-1)/L \cdot M$ over the slow tier and costs up to $5.8\times$ more. From `code/notebooks/04_hierarchical_partitioning.ipynb`.*
+
 **Case study: NVL72 + IB SuperPOD (AR).** Using the §1.2 symbol values, take a 2-pod deployment ($L = 2$, $N = 144$, $M = 16\\,\mathrm{MB}$, ring-on-ring schedule). At this scale the two pods share a rail-ToR ($p = 2$, well within the $p \leq 4$ budget), so $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{leaf}} \approx 2\\,\mu$s for the outer phase:
 
 - **Inner RS** (ring on 72 GPUs over NVSwitch): $(N_{\mathrm{inner}}-1)\\,\alpha_{\mathrm{inner}} = 71 \cdot 0.5 = \mathbf{35.5\\,\mu s}$ α; $\frac{71}{72}\cdot\frac{M}{\mathrm{BW}\_{\mathrm{inner}}} \approx \mathbf{17.5\\,\mu s}$ BW.
@@ -453,6 +457,14 @@ This is why MoE expert parallelism placement on the inner-most fabric (NVL72 NVS
 - **Outer tier is fast enough to do a flat AR.** A deployment entirely inside one NVL72 pod has no outer-tier penalty, and flat star AR (DBT / INC) beats any hierarchical scheme.
 - **Group shape doesn't factor nicely.** If $N = 513$ doesn't divide into a clean (inner, outer) factorization, hierarchical phases pay padding overhead.
 - **Outer tier oversubscription $s$ is large.** See §3 — high $s$ compresses the hierarchical advantage.
+
+![Hierarchical all-reduce cost split into inner RS, outer sub-AR and inner AG as the number of outer groups varies](assets/charts/hier_ar_phase_breakdown.svg)
+
+*Figure: phase breakdown of hierarchical ring-on-ring AR as the number of outer groups $L$ varies ($N = 512$, $M = 16\\,\mathrm{MB}$, inner $0.5\\,\mu$s / $900\\,\mathrm{GB/s}$, outer $1\\,\mu$s / $50\\,\mathrm{GB/s}$ — the notebook's parameters, with an illustrative outer $\alpha$ below §1.2's $\alpha_{\mathrm{leaf}}$ and $\alpha_{\mathrm{spine}}$; not the case study's). Few groups leave long inner rings; many groups push hops and bytes onto the slow outer tier; with these parameters the minimum is at $L = 16$. From `code/notebooks/04_hierarchical_partitioning.ipynb`.*
+
+![Hierarchical all-reduce cost versus number of outer groups for five outer-tier bandwidths](assets/charts/hier_ar_vs_outer_bw.svg)
+
+*Figure: the same sweep for five outer-tier bandwidths (other parameters as above). Because the outer phase carries only $ML/N$, the optimum barely moves: $L = 8$ at 10–25 GB/s, $L = 16$ from 50 GB/s up. From `code/notebooks/04_hierarchical_partitioning.ipynb`.*
 
 ---
 
@@ -609,6 +621,10 @@ A.2 walks the next layer up — how each rack's 72 NICs reach IB ToRs (pod → l
 ### A.2 Pod ↔ leaf-ToR connection (rail-optimized)
 
 Two complementary views capture how each NVL72's 72 NICs reach IB leaf-ToRs: **fan-out** (one pod → 4 rail-ToRs) and **aggregate / inverse** (one rail-ToR ← up to 4 pods). Both are introduced in §1.1's Layout 2; this subsection rephrases them in the appendix's $L = 32$ context.
+
+![Rail-optimized scale-out, reduced to 2 racks of 4 GPUs: each GPU's NIC lands on its own rail ToR](assets/rail_optimized_scale_out.svg)
+
+*The same wiring rule at toy scale — 2 racks × 4 GPUs, one ToR per rail, no spine needed. The NVL72 version below bundles 18 NICs per rail per pod.*
 
 **View 1 — Fan-out (one pod → 4 rail-ToRs).** NICs at slot $i$ across every tray (one per tray × 18 trays = 18 NICs) bundle together and exit the rack to the rail-$i$ leaf-ToR; the same pattern at slots 1, 2, 3 fills the other 3 rail-ToRs. **Each pod is striped across 4 rail-ToRs, contributing 18 NICs to each.**
 

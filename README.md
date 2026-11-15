@@ -14,6 +14,46 @@ If you've ever wondered:
 
 ---
 
+## What's modeled
+
+![Fabrics and in-network primitives modeled: star, k-D torus, k-D and full mesh, fat-tree / Clos, hierarchical scale-up + scale-out, in-network collectives](documentation/modeling/assets/topologies_modeled.svg)
+
+**Fabrics**
+
+| Fabric | Real-world examples | Spec | Cost functions |
+|---|---|---|---|
+| Star (single switch) | NVSwitch / NVL72 scale-up | `02_topology_mapping.md` §2 | `ring_broadcast`, `ring_reduce`, `ring_all_reduce`, `ring_all_gather`, `ring_reduce_scatter`, `tree_*`, `rabenseifner_all_reduce`, `recursive_doubling_all_gather`, `recursive_halving_reduce_scatter`, `pat_*`, `pairwise_a2a`, `bruck_a2a`, `p2p_hop` |
+| k-D torus | Google TPU, AWS Trainium | `02_topology_mapping.md` §3 | `torus_all_reduce`, `torus_all_gather`, `torus_reduce_scatter`, `torus_broadcast`, `torus_reduce`, `torus_a2a` |
+| k-D mesh (no wraparound) | on-die and chiplet meshes | `02_topology_mapping.md` §4.2 | `torus_all_reduce` / `torus_all_gather` / `torus_reduce_scatter` unchanged; `torus_a2a`, `torus_broadcast`, `torus_reduce` with `wraparound=False` |
+| Full mesh | chiplet interposers, direct wiring | `02_topology_mapping.md` §4.1 | the star functions with α → α_link |
+| Bidirectional ring | pure-ring wiring (a 1-D torus) | `01_collective_algorithms.md` §7.1 | `ring_relay_a2a` |
+| Fat-tree / Clos | InfiniBand and Ethernet scale-out | `03_hierarchical_topologies.md` §1, App. B | per-tier (α, BW); oversubscription through `apply_eta` |
+| Hierarchical: scale-up pods + scale-out Clos | NVL72 + InfiniBand SuperPOD, with pod-local or rail-optimized ToRs (the overview draws pod-local) | `03_hierarchical_topologies.md` §2–§3, App. A | `hierarchical_all_reduce*`, `hierarchical_all_gather*`, `hierarchical_reduce_scatter*` |
+
+**In-network collectives** (every primitive costs `2·α_switch` on one switch, `2k·α_switch` across `k` tiers)
+
+| Switch capability | Collectives it accelerates | Hardware | Bandwidth effect | Cost functions |
+|---|---|---|---|---|
+| In-network reduction (switch ALU) | Reduce, RS | NVLS, Quantum SHARP, Tomahawk Ultra | none — α only | `inc_reduce`, `inc_reduce_scatter` |
+| Switch multicast | BC, AG | NVLS, Quantum SHARP, Tomahawk Ultra | none — α only | `inc_broadcast`, `inc_all_gather` |
+| ALU + multicast, fused | AR | NVLS, Quantum SHARP, Tomahawk Ultra | `2·M/BW` → `M/BW` | `inc_all_reduce` |
+| Crossbar scatter-gather (hardware A2A) | A2A | Tomahawk Ultra; planned for Rubin-generation NVSwitch | none — α only | `inc_a2a` |
+
+**Algorithms per collective**
+
+| Collective | Software algorithms | Topology-specific | In-network |
+|---|---|---|---|
+| Broadcast / Reduce | ring (chain), binomial tree, pipelined two-tree | torus / mesh dim-decomposed | multicast / ALU |
+| All-reduce | ring, double binary tree, Rabenseifner | torus dim-decomposed ring; hierarchical RS → AR → AG | ALU + multicast |
+| All-gather / Reduce-scatter | ring, recursive doubling / halving, PAT | torus dim-decomposed ring; hierarchical halves of AR | multicast / ALU |
+| All-to-all | pairwise direct-send, ring relay, Bruck | torus / mesh bisection-bound | hardware A2A |
+
+**Contention** — every cost above can be re-scored with per-fabric coefficients `η_α ≥ 1`, `η_β ∈ (0, 1]`: `realistic_cost` for the single-tier functions, `apply_eta` on each tier's (α, BW) for the hierarchical ones (profiles in `util.ETA_PROFILES`; `05_contention_and_congestion.md` §4).
+
+More detailed diagrams: [scale-up + scale-out paths for one server](documentation/modeling/assets/scale_up_scale_out.svg) and [rail-optimized scale-out](documentation/modeling/assets/rail_optimized_scale_out.svg).
+
+---
+
 ## Layout
 
 ```
@@ -25,17 +65,19 @@ collective_comm/
 │   ├── 03_hierarchical_topologies.md
 │   ├── 04_in_network_collectives.md
 │   ├── 05_contention_and_congestion.md
-│   └── references.md
+│   ├── references.md
+│   └── assets/               ← figures (SVG diagrams, charts/, social card)
 └── code/
     ├── core/collective_cost.py   ← α-β cost primitives (BC, Reduce, AR, AG/RS, A2A)
     ├── tests/                    ← stdlib unittest regression suite (canonical anchors)
-    ├── util/                     ← anchors, primitive registry, sweep helpers
+    ├── util/                     ← anchors, primitive registry, sweep helpers, chart style
     └── notebooks/
         ├── 00_api_enumeration.ipynb           ← every primitive at the canonical anchor
         ├── 01_payload_sweep.ipynb             ← M from 1 KB → 1 GB; α/BW regime crossover
         ├── 02_group_topology_sweep.ipynb      ← G scaling; torus dimensionality
         ├── 03_eta_sensitivity.ipynb           ← realistic η contention; fat-tree oversub
-        └── 04_hierarchical_partitioning.ipynb ← two-tier composition; NVL72 + IB sweep
+        ├── 04_hierarchical_partitioning.ipynb ← two-tier composition; NVL72 + IB sweep
+        └── export_figures.py                  ← re-exports the notebook charts used in the docs
 ```
 
 ---

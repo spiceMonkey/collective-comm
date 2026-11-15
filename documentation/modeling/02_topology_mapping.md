@@ -1125,6 +1125,14 @@ Six observations that the rest of this series builds on:
 5. **Tree-flavored algorithms ship on star but not on torus / mesh.** DBT is NCCL's default on switched fabrics and is selected by the tuner for small-$M$ AR; the structurally analogous dim-decomposed Rabenseifner variant on torus (Appendix A) is not the default on either the TPU or the Trainium runtime stack (NeuronX CCL lists an RDH variant alongside ring [NEURON-CC]) because the 1.5–4× algorithmic-step α compression at production dim sizes $d_i \in \\{4, 8, 16\\}$ rarely beats the simpler ring kernel in practice — and under per-physical-hop accounting on ring wiring it disappears altogether (Appendix A caveat). This is a fabric-economics decision, not a correctness one.
 6. **Star has an additional α-compression escape hatch via in-network collectives — direct-wired topologies (torus, full mesh, k-D mesh) do not.** Within a switched fabric, the reduction operation can move into the switch ASIC itself: switch-resident ALUs reduce flits on the fly and multicast the result back, collapsing $n_\alpha$ from $2\log_2 N$ (DBT) all the way to $2$, independent of $N$. NVLS (NVSwitch), Quantum SHARP (InfiniBand fat-tree / Clos), and Tomahawk Ultra INC (Ethernet) all exploit this. Direct-wired topologies have no analogous path — the $N$-dependent $\alpha$ term comes from neighbor-router hops, which cannot be collapsed by moving the reduce into a central switch that does not exist. See `04_in_network_collectives.md` for the full mechanism and cost model.
 
+![All-reduce cost versus group size at M = 16 MB for ring, pipelined DBT, Rabenseifner, INC and a 3-D torus](assets/charts/ar_cost_vs_group_size.svg)
+
+*Figure: AR cost versus group size $N$ at $M = 16\\,\mathrm{MB}$ (ideal $\alpha$ / BW). Ring's $\alpha$ term grows linearly with the group. The cube-like 3-D torus grows as $\sum_i (d_i - 1)$: within $1.3\times$ of pipelined DBT up to $N = 512$, widening to $2\times$ at $N = 8192$. Rabenseifner (dashed) lies on top of pipelined DBT from $N = 16$ on — the two differ only by $(2M/\mathrm{BW})/N$. INC is flat. From `code/notebooks/02_group_topology_sweep.ipynb`.*
+
+![All-to-all cost versus group size at M = 16 MB for pairwise, Bruck, hardware A2A and a 3-D torus](assets/charts/a2a_cost_vs_group_size.svg)
+
+*Figure: A2A cost versus group size $N$ at $M = 16\\,\mathrm{MB}$. Pairwise pays $(N-1)\\,\alpha$. The torus pays only its diameter in $\alpha$; its BW coefficient is $1/2$ up to $N = 64$ (a size-2 dimension, or $d_{\max} = 4$) and $d_{\max}/8$ beyond, stepping up at $N = 128$, $1024$ and $8192$ as the largest dimension doubles. Shapes are the most cube-like factorization of each $N$. From `code/notebooks/02_group_topology_sweep.ipynb`.*
+
 ### 5.2 Limitations
 
 Every cost formula above assumes the collective runs **alone** with perfect link-level scheduling. Real deployments break this in four ways; `05_contention_and_congestion.md` covers each with coefficient models.

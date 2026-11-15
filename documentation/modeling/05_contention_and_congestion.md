@@ -162,6 +162,10 @@ The inequality binds at $1/s$ whenever $s$ drives the cap below the tier's hardw
 
 The leaf row matches the single-tier NVSwitch-class floor (§4.1's crossbar row) because per-endpoint BW is not oversubscribed. The spine row's $\eta_\beta$ is $\min(0.80, 1/s)$ — oversubscription dominates the hardware floor once $s > 1.25$. $\eta_\alpha^{\mathrm{spine}} = 1.10\text{–}1.30$ reflects cross-tier queueing at moderate load on credit-based flow control (InfiniBand) or PFC-configured Ethernet; the factor climbs to 2–3× as fabric utilization crosses 80%.
 
+![All-reduce cost versus fat-tree oversubscription ratio for ring, pipelined DBT and INC](assets/charts/ar_fat_tree_oversubscription.svg)
+
+*Figure: the cap in action — the $N = 512$, $M = 16\\,\mathrm{MB}$ AR re-priced with $\eta_\beta = \min(\eta_\beta^{\mathrm{hw}}, 1/s)$ applied to the whole collective (an illustration, not a tiered model). INC's lower hardware $\eta_\beta$ (0.52) is the binding term until $s \approx 2$; at $s = 4$ INC costs 72 μs and DBT 151 μs. From `code/notebooks/03_eta_sensitivity.ipynb`.*
+
 **3-tier Clos.** A super-spine tier extends the table with a third row. If the super-spine is oversubscribed at $s_3$ independently of the spine-tier $s_2$, cross-pod BW compounds: $\eta_\beta^{\mathrm{cross\text{-}pod}} \leq 1/(s_2 \cdot s_3)$ when traffic crosses both tiers (the two ratios multiply). Most production Clos fabrics oversubscribe only one tier (typically the super-spine at $s_3 \in \\{2, 4\\}$), keeping the leaf-spine tier at $s_2 = 1$ — which pins $\eta_\beta^{\mathrm{cross\text{-}pod}} \leq 1/s_3$.
 
 **Applying per-tier $\eta$ in the AR cost formula.** For the two-tier RS → sub-AR → AG decomposition from `03_hierarchical_topologies.md §2.1`, each phase uses its own tier's coefficients:
@@ -185,6 +189,10 @@ Using the realistic profile from §4.1, re-run the AR ladder from `04_in_network
 | Hypothetical star + NVLS (INC) | 2 | 1 | 1 μs | 17.8 μs | **18.8 μs** | 1.00 | 0.52 | 1 μs | 34.2 μs | **35 μs** |
 | Star + DBT (NCCL) | 18 | 2 | 9 μs | 35.6 μs | **45 μs** | 1.00 | 0.80 | 9 μs | 44.4 μs | **53 μs** |
 | Torus $8^3$ + dim-ring | 42 | 2 | 21 μs | 35.5 μs | **57 μs** | 1.20 | 0.60 | 25.2 μs | 59.1 μs | **84 μs** |
+
+![Ideal and realistic all-reduce cost for five fabric and algorithm pairings, with the percentage inflation](assets/charts/ar_ideal_vs_realistic.svg)
+
+*Figure: ideal versus realistic AR cost for each pairing under its native $\eta$ profile ($N = 512$, $M = 16\\,\mathrm{MB}$): the table's three rows, plus ring and Rabenseifner on the crossbar profile for reference. For ring the two points nearly coincide (+2%). From `code/notebooks/03_eta_sensitivity.ipynb`.*
 
 ### 5.2 What changed
 
@@ -263,6 +271,10 @@ The $(\eta_\alpha, \eta_\beta)$ defaults in §4.1 are calibrated from public mea
 - **First-pass topology selection.** "Star vs torus for a new 512-GPU cluster" — the ideal-$\eta$ ranking often holds, but realistic-$\eta$ shifts the margins. Both sweeps should agree on the top choice; if they don't, the decision is contention-sensitive and warrants simulation.
 - **Scheduler-policy review.** "Are our rank-allocation and concurrent-group policies prefix-aligned on torus?" — off-prefix (§3.1) and concurrent-group (§3.2) penalties are the primary reason realistic torus $\eta_\beta$ sits at 0.60 vs the 0.80 a star pays; a policy change can recover much of that.
 - **Sensitivity analysis.** "How much does our end-to-end step time depend on contention?" (TPOT for inference, step-time for training) — sweep $\eta$ from (1.0, 1.0) ideal to (1.5, 0.4) aggressive and report the envelope.
+
+![All-reduce cost as each algorithm's bandwidth-utilization coefficient degrades from 1.0 to 0.4](assets/charts/ar_eta_beta_sensitivity.svg)
+
+*Figure: the sensitivity sweep on $\eta_\beta$ alone ($N = 512$, $M = 16\\,\mathrm{MB}$). Hollow circles mark each algorithm's native $\eta_\beta$ from §4.1; $\eta_\alpha$ is held at 1, so the torus point is 80 μs rather than §5.1's 84 μs. At equal $\eta_\beta$ the ranking INC < DBT < torus < ring holds across the whole range. From `code/notebooks/03_eta_sensitivity.ipynb`.*
 
 Cases where $\eta$-based ranking is **not enough** and you should escalate to real simulation or measurement:
 
