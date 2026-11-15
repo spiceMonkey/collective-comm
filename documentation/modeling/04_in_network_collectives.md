@@ -7,7 +7,7 @@ On switched fabrics — single-switch star (e.g., NVSwitch) or multi-tier star-o
 
 **In-network collectives (INC)** attack this term at its source by moving the reduction into the switch ASIC itself. Switch-resident ALUs reduce flits as they arrive and multicast the result back; endpoints see the reduced output in a single logical round trip, and the endpoint software overhead is paid **once** rather than $O(N)$ or $O(\log N)$ times. On a single-switch star, $n_\alpha$ collapses from $2(N-1)$ or $2\lceil \log_2 N \rceil$ down to $2$, independent of $N$. On a multi-tier switched fabric, the aggregation tree is built from switches rather than endpoints, so $n_\alpha = O(\log_r N)$ but at switch cut-through latency ($\sim$ 200-400 ns) rather than endpoint RTT ($\sim 1-3\\,\mu$s) — a 5-10× per-hop saving on top of the structural collapse.
 
-The speedup is **scoped to switched fabrics**: star, fat-tree / Clos. Torus-native collectives don't benefit — their $N$-dependent $\alpha$ term comes from neighbor-router hops rather than endpoint-driven switch round trips, and there is no switch-hosted ALU in the reduce path. This note focuses on the switched-fabric case: what the hardware does, how the $O(N) \to O(1)$ latency collapse manifests at $N = 512$ on a hypothetical single-switch star (chosen for consistency with the running example in `02_topology_mapping.md §5.1` and `05_contention_and_congestion.md §5`), and where the mechanism breaks down (reducible types, precision, cross-domain fallback). Three shipping implementations anchor the discussion — NVLS (NVLink SHARP on NVSwitch, single-switch star), Quantum SHARP (InfiniBand, multi-tier), and Tomahawk Ultra INC (Ethernet, emerging).
+The speedup is **scoped to switched fabrics**: star, fat-tree / Clos. Torus-native collectives don't benefit — their $N$-dependent $\alpha$ term comes from neighbor-router hops rather than endpoint-driven switch round trips, and there is no switch-hosted ALU in the reduce path. This note focuses on the switched-fabric case: what the hardware does, how the $O(N) \to O(1)$ latency collapse manifests at $N = 512$ on a hypothetical single-switch star (chosen for consistency with the $8 \times 8 \times 8$ anchor of `02_topology_mapping.md §3.4` and `05_contention_and_congestion.md §5`), and where the mechanism breaks down (reducible types, precision, cross-domain fallback). Three shipping implementations anchor the discussion — NVLS (NVLink SHARP on NVSwitch, single-switch star), Quantum SHARP (InfiniBand, multi-tier), and Tomahawk Ultra INC (Ethernet, emerging).
 
 # Table of Contents
 
@@ -70,7 +70,7 @@ Reduce — one root R* receives the sum of all N values
     R2     ─push M─►│
      ...            │
     R(N-1) ─push M─►┘
-    Total: ~1 logical round trip — one push per rank, one receive at root
+    Total: 2 switch hops — one push per rank up, one reduced result down to the root
 ```
 
 ```
@@ -78,7 +78,7 @@ RS — every rank receives a distinct M/N-byte slice of the reduced result
 ────────────────────────────────────────────────────────────────────────
 
   Software ring RS:
-    N-1 sequential ring steps, each forwarding (N-1)/N · M bytes
+    N-1 sequential ring steps, each forwarding one M/N chunk — (N-1)/N · M in total
 
   INC RS:                                          
     R0     ─push M─►┐                          ┌─slice 0 (M/N) ─► R0
@@ -86,14 +86,14 @@ RS — every rank receives a distinct M/N-byte slice of the reduced result
     R2     ─push M─►│   then scatter slices    ├─slice 2 (M/N) ─► R2
         ...         │                          |         ...  
     R(N-1) ─push M─►┘                          └─slice N-1 (M/N) ─► R(N-1)
-    Total: ~2 logical round trips — push, in-fabric ALU + scatter, receive
+    Total: 2 switch hops — push up, in-fabric ALU + scattered slices down
 ```
 
 **AR's reduce phase** uses the same switch-ALU mechanism as Reduce; the M-byte reduced result feeds straight into the multicast engine (§1.2) for AR's broadcast phase, instead of being delivered to a single root.
 
 **Improvement vs software.** The α and BW effects on these primitives:
 
-- **α-term**: from $O(N)$ endpoint round trips (ring) or $O(\log N)$ levels (tree) down to $\sim 2$ logical round trips through the switch, regardless of $N$. Speedup $\sim (N-1)/2$ vs ring, $\sim \log_2 N$ vs tree.
+- **α-term**: from $O(N)$ endpoint round trips (ring) or $O(\log N)$ levels (tree) down to $2\\,\alpha_{\mathrm{switch}}$ — one hop into the switch, one hop out — regardless of $N$. Speedup at equal per-hop $\alpha$: $\sim (N-1)/2$ vs ring, $\sim \log_2 N / 2$ vs tree.
 - **BW-term**: stays at the same per-rank ceiling as software ($M/\mathrm{BW}$ for Reduce; $(N-1)/N \cdot M/\mathrm{BW}$ for RS) — software ring already saturates the link via full-duplex forwarding. INC reduction is α-only on these two primitives.
 - **AR is special**: composes the switch ALU + multicast xbar and additionally lifts $\mathrm{BW_{eff}}$ from $\mathrm{BW}/2$ to $\mathrm{BW}$ — see §1.4.
 
@@ -125,7 +125,7 @@ BC — root R0 sends M bytes to all other ranks
     R0 ─push M─► [Switch     ─┤─► R2
                   multicast:  ├─► ...
                   fanout]     └─► R(N-1)
-    Total: ~1 logical round trip — single multicast write, parallel fanout
+    Total: 2 switch hops — single multicast write up, parallel fanout down
 ```
 
 ```
@@ -144,20 +144,20 @@ AG — every rank pushes its M/N slice; every rank receives all N slices
 
     All N multicasts pipeline through the switch's multicast engine concurrently;
     every rank ends with N slices = M bytes total.
-    Total: ~2 logical round trips — N concurrent pushes + N concurrent receives
+    Total: 2 switch hops — N concurrent pushes up, N concurrent multicasts down
 ```
 
 **AR's multicast phase** uses the same switch-multicast mechanism as BC; the multicast source is the switch ALU's reduced output (§1.1) rather than a designated root rank.
 
 **Improvement vs software.**
 
-- **α-term**: from $O(N)$ (ring AG) or $O(\log N)$ (pipelined tree BC) down to $\sim 2$ logical round trips. Speedup $\sim (N-1)/2$ vs ring AG, $\sim \log_2 N$ vs tree BC.
+- **α-term**: from $O(N)$ (ring AG) or $O(\log N)$ (pipelined tree BC) down to $2\\,\alpha_{\mathrm{switch}}$. Speedup at equal per-hop $\alpha$: $\sim (N-1)/2$ vs ring AG, $\sim \log_2 N / 2$ vs tree BC.
 - **BW-term**: stays at $M/\mathrm{BW}$ per rank — software ring AG / pipelined tree BC already saturate the link in full-duplex via concurrent forward + receive. Multicast's gain is α-only here too.
 - **AR is special** — see §1.4.
 
 **Commercial shipment.**
 
-- **SHARP-class INC** — switch multicast support is bundled with switch-ALU support; the same generations from §1.1 apply. NVLS supports BC / AG / AR within an NVSwitch domain; Quantum SHARP and Spectrum-X SHARP support multicast across multi-tier IB / Ethernet fat-trees; Tomahawk Ultra supports it on Ethernet scale-up.
+- **SHARP-class INC** — switch multicast support is bundled with switch-ALU support; the same generations from §1.1 apply. NVLS provides the multicast path within an NVSwitch domain (NCCL v2.23 exposes its NVLS algorithm for AllReduce, AllGather and ReduceScatter; `ncclBroadcast` and `ncclReduce` run NCCL's ring); Quantum SHARP and Spectrum-X SHARP support multicast across multi-tier IB / Ethernet fat-trees; Tomahawk Ultra supports it on Ethernet scale-up.
 - **PCIe switch multicast** — Broadcom PEX series (formerly PLX), Microchip Switchtec, and Astera Labs PCIe switches implement the PCIe-spec **MCAST** capability (introduced in PCIe 2.1, ~2010): a single posted write to a multicast-group ID is replicated by the crossbar to all destination ports in one switch operation. Structurally the same as the SHARP-class multicast above, but scoped to a PCIe domain (covers BC / AG along the CPU↔GPU and GPU↔NIC paths within a host). For modern NVLink-based AI clusters this path is less central than NVLS, since intra-node GPU↔GPU traffic stays on NVLink — but PCIe multicast is a valid INC primitive for non-NVLink accelerator topologies (some AMD MI-series configurations, custom inference cards, accelerators interconnected over PCIe fabric) and was the dominant scale-up multicast option in pre-NVLink HPC clusters.
 
 ### 1.3 Crossbar scatter-gather — HW A2A (emerging)
@@ -171,7 +171,7 @@ Software A2A has each rank serialize $N{-}1$ outbound sends through its single p
 3. The switch crossbar reads the per-chunk routing tags and **forwards each chunk to its destination port in parallel within the switch**.
 4. Each destination receives its $M/N$ chunk in one switch-driven transaction.
 
-The $N{-}1$ endpoint-driven scheduling rounds collapse to ~1 endpoint submit + 1 switch routing pass + 1 endpoint receive. Per-rank α drops from $(N{-}1)\\,\alpha$ to $\sim\alpha_{\mathrm{switch}}$.
+The $N{-}1$ endpoint-driven scheduling rounds collapse to ~1 endpoint submit + 1 switch routing pass + 1 endpoint receive. Per-rank α drops from $(N{-}1)\\,\alpha$ to $\sim 2\\,\alpha_{\mathrm{switch}}$ (one hop into the switch, one hop out).
 
 ```
 A2A — every source-destination pair carries a distinct payload
@@ -208,7 +208,7 @@ A2A — every source-destination pair carries a distinct payload
 
     Same send_buffer bytes are physically transferred; only the submission
     descriptor differs (1 descriptor + 1 endpoint α, vs N-1 descriptors and α's).
-    Per-rank cost: ~1 submit + 1 switch routing pass + 1 receive ≈ ~α_switch
+    Per-rank cost: 1 submit + 1 switch routing pass + 1 receive ≈ 2·α_switch
 ```
 
 **Crossbar routing structure — multicast xbar (§1.2) vs scatter-gather engine (§1.3).** Both bypass the switch ALU; they differ in how the crossbar dispatches data:
@@ -271,44 +271,44 @@ What distinguishes HW A2A from the SHARP-class efficiency wins is **how** the sw
 
 In both cases the per-rank wire-side byte count is identical to software ($(N{-}1)/N \cdot M$ for A2A, AG, RS; $M$ for BC, Reduce; etc.) — so the BW term is unchanged and the win is α-only. AR is the lone structural exception.
 
-**Cost comparison** (intra-pod A2A at $N = 72$, $M = 16\\,\mathrm{MB}$, $\alpha_{\mathrm{inner}} = 0.5\\,\mu$s, $\alpha_{\mathrm{switch}} \approx 0.2\\,\mu$s, $\mathrm{BW}_{\mathrm{inner}} = 900\\,\mathrm{GB/s}$):
+**Cost comparison** (intra-pod A2A at $N = 72$, $M = 16\\,\mathrm{MB}$, $\alpha_{\mathrm{inner}} = 0.5\\,\mu$s, $\alpha_{\mathrm{switch}} \approx 0.2\\,\mu$s, $\mathrm{BW}\_{\mathrm{inner}} = 900\\,\mathrm{GB/s}$):
 
 | | α term | BW term | Total |
 |---|---|---|---|
 | Software pairwise A2A | $(N{-}1)\\,\alpha = 35.5\\,\mu$s | $(N{-}1)/N \cdot M/\mathrm{BW} \approx 17.5\\,\mu$s | **~53 μs** |
 | Hardware A2A (Rubin / Tomahawk Ultra) | $\sim 2\\,\alpha_{\mathrm{switch}} \approx 0.4\\,\mu$s | unchanged ≈ 17.5 μs | **~18 μs** |
 
-About a **3× total speedup** at $M = 16\\,\mathrm{MB}$, dominated by the α collapse; at small $M$ where α dominates, the speedup approaches $(N{-}1)/2 \approx 36\times$. At large $M$ where BW dominates, both schedules converge toward the bisection bound ($\sim M/\mathrm{BW}$).
+About a **3× total speedup** at $M = 16\\,\mathrm{MB}$, dominated by the α collapse; at small $M$ where α dominates, the speedup approaches $(N{-}1)\\,\alpha / (2\\,\alpha_{\mathrm{switch}}) = 35.5 / 0.4 \approx 89\times$ at these values ($(N{-}1)/2 \approx 36\times$ at equal per-hop $\alpha$). At large $M$ where BW dominates, both schedules converge toward the per-port bound ($\sim M/\mathrm{BW}$).
 
 **Commercial shipment:**
 
 - **NVSwitch Gen4** (current GB200 NVL72): no HW A2A — A2A runs software-scheduled through the crossbar.
-- **Rubin-generation NVSwitches** (next gen): planned HW A2A support, extending NVLS beyond AR / BC / AG.
+- **Rubin-generation NVSwitches** (next gen): planned HW A2A support, extending NVLS beyond AR / AG / RS.
 - **Broadcom Tomahawk Ultra** (Ethernet, shipped 2025): yes — first commodity-Ethernet HW A2A primitive [TH-ULTRA].
 - **Quantum-X800** (current IB): no HW A2A on shipping silicon.
 
 ### 1.4 Cost-model savings — consolidated summary
 
-§1.1, §1.2, and §1.3 each accelerate a different subset of collectives. The net α-term and BW-term effects across all primitives, evaluated on a single-switch star with $N$ ranks, $M$-byte payload, switch cut-through $\alpha_{\mathrm{switch}}$:
+§1.1, §1.2, and §1.3 each accelerate a different subset of collectives. The net α-term and BW-term effects across all primitives, evaluated on a single-switch star with $N$ ranks, $M$-byte payload, switch cut-through $\alpha_{\mathrm{switch}}$ (every INC primitive pays $2\\,\alpha_{\mathrm{switch}}$ — one hop into the switch, one hop out; α speedups are quoted at equal per-hop $\alpha$):
 
-| Primitive | Required INC HW | α (best software) | α (INC) | α speedup | $\mathrm{BW_{eff}}$ (software) | $\mathrm{BW_{eff}}$ (INC) | BW lift |
+| Primitive | Required INC HW | α (software baseline) | α (INC) | α speedup | $\mathrm{BW_{eff}}$ (software) | $\mathrm{BW_{eff}}$ (INC) | BW lift |
 |---|---|---|---|---|---|---|---|
 | **AR** | Switch ALU + Multicast xbar | $2(N{-}1)\alpha$ (ring) or $2\lceil\log_2 N\rceil\alpha$ (DBT) | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\sim (N{-}1)$ or $\sim \log_2 N$ × | $\mathrm{BW}/2$ | $\mathrm{BW}$ | **2×** |
-| **Reduce** | Switch ALU | $\lceil\log_2 N\rceil\alpha$ | $\sim \alpha_{\mathrm{switch}}$ | $\sim \log_2 N$ × | $\mathrm{BW}$ (saturated) | $\mathrm{BW}$ | $1\times$ |
+| **Reduce** | Switch ALU | $\lceil\log_2 N\rceil\alpha$ | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\sim \log_2 N / 2$ × | $\mathrm{BW}$ (saturated) | $\mathrm{BW}$ | $1\times$ |
 | **RS** | Switch ALU | $(N{-}1)\alpha$ | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\sim (N{-}1)/2$ × | $\mathrm{BW}$ | $\mathrm{BW}$ | $1\times$ |
 | **AG** | Multicast xbar | $(N{-}1)\alpha$ | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\sim (N{-}1)/2$ × | $\mathrm{BW}$ | $\mathrm{BW}$ | $1\times$ |
-| **BC** | Multicast xbar | $\lceil\log_2 N\rceil\alpha$ (pipelined tree) | $\sim \alpha_{\mathrm{switch}}$ | $\sim \log_2 N$ × | $\mathrm{BW}$ | $\mathrm{BW}$ | $1\times$ |
-| **A2A** | Scatter-gather engine | $(N{-}1)\alpha$ (pairwise) | $\sim \alpha_{\mathrm{switch}}$ | $\sim (N{-}1)$ × | $\mathrm{BW}$ (bisection) | $\mathrm{BW}$ (bisection) | $1\times$ |
+| **BC** | Multicast xbar | $\lceil\log_2 N\rceil\alpha$ (pipelined tree) | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\sim \log_2 N / 2$ × | $\mathrm{BW}$ | $\mathrm{BW}$ | $1\times$ |
+| **A2A** | Scatter-gather engine | $(N{-}1)\alpha$ (pairwise) | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\sim (N{-}1)/2$ × | $\mathrm{BW}$ (per-port) | $\mathrm{BW}$ (per-port) | $1\times$ |
 
 Three structural observations:
 
 **1. AR is the unique primitive that uses both the switch ALU and the multicast xbar.** Endpoints push their contributions into the switch ALU (reduce phase from §1.1); the ALU emits the single $M$-byte result into the multicast xbar; the crossbar replicates it back to all ports (multicast phase from §1.2). Together these complete the entire AR in one logical round trip, regardless of $N$ — endpoint software overhead is paid once for the whole collective.
 
-This composition is why AR alone gets *both* a structural α collapse AND a BW-eff doubling. Every byte of the reduced result must visit an endpoint link **twice** in software AR (once into the reduction, once back out for redistribution); ring makes this explicit (RS phase + AG phase), and DBT pays the same dual-touch in fewer steps. NCCL's DBT in fact moves the **full** $2M$ per rank, hitting $\mathrm{BW_{eff}} = \mathrm{BW}/2$ exactly. INC's switch ALU + multicast pair does both phases inside the fabric, so each endpoint moves only $M$ bytes total — one upstream, one downstream, on opposite directions of the full-duplex link. The $2\times$ ratio is the algorithmic ceiling; realized lift is smaller (~$1.3\times$ measured on NVLS) and is treated quantitatively in `05_contention_and_congestion.md`.
+This composition is why AR alone gets *both* a structural α collapse AND a BW-eff doubling. Every byte of the reduced result must visit an endpoint link **twice** in software AR (once into the reduction, once back out for redistribution); ring makes this explicit (RS phase + AG phase), and DBT pays the same dual-touch in fewer steps. NCCL's DBT in fact moves the **full** $2M$ per rank, hitting $\mathrm{BW_{eff}} = \mathrm{BW}/2$ exactly (each rank is interior in one tree and a leaf in the other — `01_collective_algorithms.md` §5.2). INC's switch ALU + multicast pair does both phases inside the fabric, so each endpoint moves only $M$ bytes total — one upstream, one downstream, on opposite directions of the full-duplex link. The $2\times$ ratio is the algorithmic ceiling; realized lift is smaller (~$1.3\times$ measured on NVLS) and is treated quantitatively in `05_contention_and_congestion.md`.
 
 **2. AG / BC / RS / Reduce get α-only wins because software already saturates link BW.** A full-duplex star runs ring AG / pipelined tree BC at $\mathrm{BW_{eff}} = \mathrm{BW}$ already — each step, a rank forwards $M/N$ outbound while receiving $M/N$ inbound concurrently, so per-rank wall-clock BW is $(N-1)/N \cdot M/\mathrm{BW} \approx M/\mathrm{BW}$. The two-touch pattern that costs AR a factor of two never applied. INC's BW-side numbers for these primitives match software (not lift it), so their speedups are dramatic at small $M$ (α-bound) and converge to $1\times$ at large $M$ (BW-bound).
 
-**3. A2A's win is α-only and "efficiency" rather than "structural".** Total cross-sectional bytes ($(N{-}1)\\,M$) are unchanged because the switch routes them verbatim — no aggregation collapse, no replication. The α reduction from $(N{-}1)\alpha$ to $\sim\alpha_{\mathrm{switch}}$ (§1.3) comes from batching $N{-}1$ endpoint-scheduling rounds into one switch transaction, not from an algorithmic-tree collapse. Where HW A2A doesn't ship (current NVSwitch Gen4 / Quantum-X800), A2A pays the full software $(N{-}1)\alpha$ on its only path — software pairwise direct-send. SHARP-class INC at the same fabrics gives A2A nothing because the switch ALU and multicast xbar need aggregation or replication semantics, which A2A lacks.
+**3. A2A's win is α-only and "efficiency" rather than "structural".** Total cross-sectional bytes ($(N{-}1)\\,M$) are unchanged because the switch routes them verbatim — no aggregation collapse, no replication. The α reduction from $(N{-}1)\alpha$ to $\sim 2\\,\alpha_{\mathrm{switch}}$ (§1.3) comes from batching $N{-}1$ endpoint-scheduling rounds into one switch transaction, not from an algorithmic-tree collapse. Where HW A2A doesn't ship (current NVSwitch Gen4 / Quantum-X800), A2A pays the full software $(N{-}1)\alpha$ on its only path — software pairwise direct-send. SHARP-class INC at the same fabrics gives A2A nothing because the switch ALU and multicast xbar need aggregation or replication semantics, which A2A lacks.
 
 **Per-hop α substitution at multi-tier scale.** Even for primitives where INC's $n_\alpha$ collapse stays $O(\log N)$ on a multi-tier fabric (the aggregation-tree depth $k = \lceil\log_r N\rceil$), each switch-level α is $\sim 200$–$400$ ns (cut-through) instead of the $\sim 1$–$3\\,\mu$s endpoint RTT — a 5–10× per-hop saving stacked on top of the structural collapse, because the endpoint software overhead is paid **once** at collective launch rather than once per level. §2.2 picks up the multi-tier story.
 
@@ -328,7 +328,7 @@ per the §1.4 derivation ($\mathrm{BW_{eff}} = \mathrm{BW}$, the full algorithmi
 
 Two shipping implementations on different fabrics:
 
-- **NVLS — NVLink / NVSwitch.** NVIDIA's NVLink SHARP, introduced with NVSwitch Gen3 (H100 era) and extended in NVSwitch Gen4 (B200 / GB200 / NVL72). Domain size is capped by NVSwitch radix — 72 GPUs per NVL72 pod. $\alpha_{\mathrm{switch}} \approx 100$–$200$ ns. Current gen supports AR / BC / AG; cross-pod traffic falls back to software (NCCL picks DBT or ring per message size). Rubin-generation NVSwitches are expected to extend NVLS to A2A.
+- **NVLS — NVLink / NVSwitch.** NVIDIA's NVLink SHARP, introduced with NVSwitch Gen3 (H100 era) and extended in NVSwitch Gen4 (B200 / GB200 / NVL72). Domain size is capped by NVSwitch radix — 72 GPUs per NVL72 pod. $\alpha_{\mathrm{switch}} \approx 100$–$200$ ns. NCCL (v2.23) exposes NVLS for AllReduce, AllGather and ReduceScatter; cross-pod traffic falls back to software (NCCL picks DBT or ring per message size). Rubin-generation NVSwitches are expected to extend NVLS to A2A.
 - **Tomahawk Ultra INC — Ethernet.** Broadcom Tomahawk Ultra (shipped 2025) is the first Ethernet switch ASIC with in-network collectives [TH-ULTRA]. 51.2 Tbps full-duplex, $\alpha_{\mathrm{switch}} \approx 250$ ns. Structurally equivalent to NVLS — single-switch star with in-fabric reduction — but on commodity Ethernet, breaking the NVLink-only monopoly on scale-up INC and opening the door to INC-enabled Ethernet fabrics at HPC / AI scale-up cost points.
 
 ### 2.2 Scale-out: multi-tier aggregation tree
@@ -337,9 +337,9 @@ Across thousands of endpoints spread over many switch levels, the INC primitive 
 
 $$t_{\mathrm{INC, AR}}^{\mathrm{scale-out}} \\;\approx\\; 2k \cdot \alpha_{\mathrm{switch}} + \frac{M}{\mathrm{BW}}$$
 
-where $k$ is the **number of switch tiers** an $M$-byte flit traverses from an endpoint to the root of the aggregation tree. For a fat-tree with per-switch radix $r$ (fan-in per level), covering $N$ endpoints requires $k = \lceil\log_r N\rceil$ tiers — e.g., $r = 64$ ports per switch covers $N = 4096$ endpoints in $k = 2$ tiers (leaf + spine), or $N = 262{,}144$ in $k = 3$ (leaf + spine + super-spine). The factor of $2k$ on the $\alpha$ term accounts for the round trip: $k$ switch hops up to the root during reduce, then $k$ back down during multicast. $\alpha_{\mathrm{switch}} \approx 200$–$400$ ns is the switch cut-through, not endpoint software RTT. The BW term stays at $M/\mathrm{BW}$ — the same algorithmic ceiling as scale-up ($\mathrm{BW_{eff}} = \mathrm{BW}$ from §1.4), because each endpoint still only pushes $M$ up and receives $M$ down, and cut-through pipelining at each tier keeps the endpoint's outbound and inbound directions overlapping once the pipeline is filled ($\sim 2k\alpha_\mathrm{switch}$).
+where $k$ is the **number of switch tiers** an $M$-byte flit traverses from an endpoint to the root of the aggregation tree. For an aggregation tree with fan-in $r$ per level (the down-facing ports of each switch; on a non-blocking fat-tree that is half the radix below the top tier and the full radix at the top, so the uniform-$r$ count is slightly conservative), covering $N$ endpoints requires $k = \lceil\log_r N\rceil$ tiers — e.g., a fan-in of $r = 64$ covers $N = 4096$ endpoints in $k = 2$ tiers (leaf + spine), or $N = 262{,}144$ in $k = 3$ (leaf + spine + super-spine). The factor of $2k$ on the $\alpha$ term accounts for the round trip: $k$ switch hops up to the root during reduce, then $k$ back down during multicast. $\alpha_{\mathrm{switch}} \approx 200$–$400$ ns is the switch cut-through, not endpoint software RTT. The BW term stays at $M/\mathrm{BW}$ — the same algorithmic ceiling as scale-up ($\mathrm{BW_{eff}} = \mathrm{BW}$ from §1.4), because each endpoint still only pushes $M$ up and receives $M$ down, and cut-through pipelining at each tier keeps the endpoint's outbound and inbound directions overlapping once the pipeline is filled ($\sim 2k\alpha_\mathrm{switch}$).
 
-Concretely, for $N = 4096$ across a 3-tier aggregation tree, AR latency is $\sim 2$–$3\\,\mu$s — even though software ring AR at the same $N$ would need 8190 sequential endpoint $\alpha$s ($\sim 8$ ms at endpoint $\alpha = 1\\,\mu$s). The $\sim 3000\times$ speedup is dominated by the endpoint-to-switch $\alpha$ substitution combined with the structural $O(N) \to O(\log N)$ collapse.
+Concretely, for $N = 4096$ on that 2-tier tree ($k = 2$), the AR $\alpha$ term is $2k\alpha_\mathrm{switch} \approx 0.8$–$1.6\\,\mu$s — whereas software ring AR at the same $N$ would need 8190 sequential endpoint $\alpha$s ($\sim 8$ ms at endpoint $\alpha = 1\\,\mu$s). The $\sim 5{,}000$–$10{,}000\times$ reduction of the $\alpha$ term (the $M/\mathrm{BW}$ term comes on top and is unaffected) is dominated by the endpoint-to-switch $\alpha$ substitution combined with the structural $O(N) \to O(\log N)$ collapse.
 
 Two shipping implementations on different fabrics:
 
@@ -361,14 +361,14 @@ Evaluating the three software / torus rows from the formulas in `02_topology_map
 | Topology | Algorithm | $n_\alpha$ | $\alpha$ term | BW term | **Total** |
 |---|---|---|---|---|---|
 | Star (crossbar) | Ring AR | 1022 | 511 μs | 35.5 μs | **546 μs** |
-| Star (crossbar) | DBT / RHD | 18 | 9 μs | 35.5 μs | **45 μs** |
+| Star (crossbar) | DBT / RHD | 18 | 9 μs | 35.5–35.6 μs | **45 μs** |
 | Hypothetical 512-port star | **NVLS-style INC** | 2 | 1 μs | 17.8 μs | **18.8 μs** |
 | Torus $8 \times 8 \times 8$ | Dim-decomp ring | 42 | 21 μs | 35.5 μs | **57 μs** |
 
 INC closes two gaps at once:
 
 - **$\alpha$ side.** $n_\alpha$ collapses from 18 (DBT) or 1022 (ring) to 2. The α term shrinks from 9 μs (DBT) to 1 μs (INC) — small in absolute terms at this $M$, but consequential at smaller $M$ (see §3.2).
-- **BW side.** $\mathrm{BW_{eff}}$ doubles from $\mathrm{BW}/2$ (any software schedule) to $\mathrm{BW}$ (INC), halving the BW term from 35.5 μs to 17.8 μs.
+- **BW side.** $\mathrm{BW_{eff}}$ doubles from $\mathrm{BW}/2$ (any software schedule) to $\mathrm{BW}$ (INC), halving the BW term from 35.6 μs to 17.8 μs.
 
 Net: star + INC at **18.8 μs** beats the best software pairing (star + DBT at 45 μs) by $\sim 2.4\times$ and the torus at 57 μs by $\sim 3\times$. Against the pathological star+ring row (546 μs) the speedup is $\sim 29\times$, but that row is a cautionary baseline, not a design we'd ship. The $\sim 2\times$ ceiling from §1.4 is the asymptotic BW-side INC speedup for AR; the full $\sim 2.4\times$ vs DBT at $M = 16\\,\mathrm{MB}$ reflects the residual $\alpha$-side contribution.
 
@@ -383,7 +383,7 @@ The $N = 512$ speedup of INC over the best software pairing (DBT) varies sharply
 | 16 MB (anchor) | 45 μs | 18.8 μs | **~2.4×** |
 | 1 GB (BW-bound) | 2.23 ms | 1.11 ms | **~2×** |
 
-At small $M$ the $\alpha$-term collapse dominates: DBT still needs 18 synchronizations at 0.5 μs each (= 9 μs); INC needs 2 (= 1 μs). At large $M$ the BW-term ratio takes over and the speedup converges to the $2\times$ payload-count ceiling. The transition is governed entirely by the $\alpha$-vs-BW crossover for DBT: $M^\star \approx n_\alpha^{\mathrm{DBT}} \cdot \alpha \cdot \mathrm{BW} / 2 = 18 \cdot 0.5\\,\mu\mathrm{s} \cdot 900\\,\mathrm{GB/s} / 2 \approx 4\\,\mathrm{MB}$. Below $M^\star$ INC's $\alpha$ savings dominate; above, its BW savings do.
+At small $M$ the $\alpha$-term collapse dominates: DBT still needs 18 synchronizations at 0.5 μs each (= 9 μs); INC needs 2 (= 1 μs). At large $M$ the BW-term ratio takes over and the speedup converges to the $2\times$ payload-count ceiling. Two payload sizes mark the transition. DBT's own $\alpha$ and BW terms are equal at $M_{\ast} \approx n_\alpha^{\mathrm{DBT}} \cdot \alpha \cdot \mathrm{BW} / 2 = 18 \cdot 0.5\\,\mu\mathrm{s} \cdot 900\\,\mathrm{GB/s} / 2 \approx 4\\,\mathrm{MB}$. INC's two savings — $8\\,\mu$s of $\alpha$ and $M/\mathrm{BW}$ of BW — are equal at $M \approx 7\\,\mathrm{MB}$. Below that INC's $\alpha$ savings dominate; above, its BW savings do.
 
 The ceilings in this section assume frictionless cut-through, no ALU or multicast contention, and no scheduler overhead. `05_contention_and_congestion.md` §5 re-runs the same $N = 512$ ladder under realistic $\eta$ and quantifies how much of each ceiling survives in deployment.
 
@@ -398,19 +398,19 @@ The ceilings in this section assume frictionless cut-through, no ALU or multicas
 |  | Hypothetical 512-port star + INC | 2 | 1.0 μs | 17.7 μs | **18.7 μs** |
 |  | Torus $8 \times 8 \times 8$ dim-decomp ring | 21 | 10.5 μs | 17.7 μs | **28.2 μs** |
 | **BC / Reduce** | Star ring | 511 | 255.5 μs | 17.8 μs | **273 μs** |
-|  | Star pipelined tree (DBT) | 9 | 4.5 μs | 17.8 μs | **22.3 μs** |
-|  | Hypothetical 512-port star + INC | 1 | 0.5 μs | 17.8 μs | **18.3 μs** |
+|  | Star pipelined tree (two-tree) | 9 | 4.5 μs | 17.8 μs | **22.3 μs** |
+|  | Hypothetical 512-port star + INC | 2 | 1.0 μs | 17.8 μs | **18.8 μs** |
 |  | Torus $8 \times 8 \times 8$ dim-decomp bidirectional | 12 | 6.0 μs | 17.8 μs | **23.8 μs** |
 | **A2A** | Star pairwise (NCCL) | 511 | 255.5 μs | 17.7 μs | **273 μs** |
 |  | Hypothetical 512-port star + SHARP-class INC | — | — | — | **N/A** (no aggregation/replication semantics; §1.1) |
-|  | Hypothetical 512-port star + HW A2A (Tomahawk Ultra / Rubin) | $\sim 2$ | $\sim 1\\,\mu$s | 17.7 μs | **~19 μs** (α-only collapse; §1.3) |
+|  | Hypothetical 512-port star + HW A2A (Tomahawk Ultra / Rubin) | 2 | 1.0 μs | 17.7 μs | **18.7 μs** (α-only collapse; §1.3) |
 |  | Torus $8 \times 8 \times 8$ bisection-bound (TPU / Trainium) | 12 | 6 μs | 17.8 μs | **23.8 μs** |
 
 Three observations:
 
-1. **AG / RS / BC / Reduce INC closes the α-side gap but not the BW-side gap.** Star + INC (~18 μs) beats the best software (~22 μs) by only $\sim 1.2\times$ at this anchor — a much tighter margin than AR's $2.4\times$ at the same $M$. The entire gap is the $\alpha$-term collapse (e.g., AG / RS rec-doub: $4.5 \to 1.0\\,\mu$s; BC / Reduce DBT: $4.5 \to 0.5\\,\mu$s); BW terms match because software rec-doub / DBT already hits $\mathrm{BW_{eff}} = \mathrm{BW}$ on a full-duplex star. At small $M$ the ratio widens toward the $\alpha$-only ceiling ($\sim 4.5\times$ for AG/RS, $\sim 9\times$ for BC/Reduce); at large $M$ all four collapse to $1\times$.
-2. **A2A's INC story is split across two capabilities, neither giving the AR-style structural collapse.** SHARP-class INC (switch ALU + multicast) gives A2A no win at all on any hardware — the primitive's per-destination payloads have no aggregation or replication structure to exploit. The separate HW A2A primitive (§1.3) ships today on Tomahawk Ultra and is planned for Rubin-generation NVSwitches; it collapses the α-side per-destination scheduling to $\sim 1\alpha$ but leaves the BW term at the bisection bound (which a switch ALU cannot reduce by forwarding-verbatim semantics). Current shipping NVSwitch Gen4 (NVL72) and Quantum-X800 include neither, so A2A on those platforms falls back to software-scheduled pairwise sends and the topology-side win path: torus bisection-bound reduces $(N{-}1)\alpha$ to $\mathrm{diam}\cdot\alpha$ at the cost of a $D_{\max}/8$ BW penalty (which vanishes at cubic shapes).
-3. **Torus stays competitive when INC is unavailable.** At $N = 512$, $M = 16\\,\mathrm{MB}$, torus 8³ dim-decomp is $\sim 1.3$–$1.5\times$ slower than hypothetical INC across AG / RS (28.2 μs vs 18.7) and BC / Reduce (23.8 vs 18.3), but $\sim 10\times$ faster than star ring — the dim-decomposition's $\sum(D_i - 1)$ or $\sum\lfloor D_i/2 \rfloor$ $\alpha$ collapse carries most of the win. Torus is the best A2A option by a wide margin when INC is unavailable (23.8 μs vs star pairwise's 273 μs — $\sim 11.5\times$), because the dim-decomposed $\mathrm{diam}\cdot\alpha$ latency term cuts deeper while the $D_{\max}/8$ BW penalty is $1\times$ at the cubic 8³ shape.
+1. **AG / RS / BC / Reduce INC closes the α-side gap but not the BW-side gap.** Star + INC (~19 μs) beats the best software (~22 μs) by only $\sim 1.2\times$ at this anchor — a much tighter margin than AR's $2.4\times$ at the same $M$. The entire gap is the $\alpha$-term collapse ($4.5 \to 1.0\\,\mu$s for all four); BW terms match because software rec-doub / pipelined tree already hits $\mathrm{BW_{eff}} = \mathrm{BW}$ on a full-duplex star. At small $M$ the ratio widens toward the $\alpha$-only ceiling ($\sim 4.5\times$ for all four); at large $M$ all four collapse to $1\times$.
+2. **A2A's INC story is split across two capabilities, neither giving the AR-style structural collapse.** SHARP-class INC (switch ALU + multicast) gives A2A no win at all on any hardware — the primitive's per-destination payloads have no aggregation or replication structure to exploit. The separate HW A2A primitive (§1.3) ships today on Tomahawk Ultra and is planned for Rubin-generation NVSwitches; it collapses the α-side per-destination scheduling to $\sim 2\alpha_{\mathrm{switch}}$ but leaves the BW term at the bisection bound (which a switch ALU cannot reduce by forwarding-verbatim semantics). Current shipping NVSwitch Gen4 (NVL72) and Quantum-X800 do not include HW A2A, so A2A on those platforms falls back to software-scheduled pairwise sends and the topology-side win path: torus bisection-bound reduces $(N{-}1)\alpha$ to $\mathrm{diam}\cdot\alpha$ with a $d_{\max}/8$ BW coefficient ($1\times$ at $8^3$).
+3. **Torus stays competitive when INC is unavailable.** At $N = 512$, $M = 16\\,\mathrm{MB}$, torus 8³ dim-decomp is $\sim 1.3$–$1.5\times$ slower than hypothetical INC across AG / RS (28.2 μs vs 18.7) and BC / Reduce (23.8 vs 18.8), but $\sim 10\times$ faster than star ring — the dim-decomposition's $\sum(d_i - 1)$ or $\sum\lfloor d_i/2 \rfloor$ $\alpha$ collapse carries most of the win. Torus is the best A2A option by a wide margin when INC is unavailable (23.8 μs vs star pairwise's 273 μs — $\sim 11.5\times$), because the shortest-path $\mathrm{diam}\cdot\alpha$ latency term cuts deeper while the $d_{\max}/8$ BW coefficient is $1\times$ at the 8³ shape.
 
 The pattern across all six primitives: **AR is the only primitive where INC pays back at every $M$** (both $\alpha$ and BW wins); AG / RS / BC / Reduce wins concentrate at small $M$ (α-only); A2A's only INC path is the separate HW A2A primitive (§1.3), which gives an α-side efficiency win on Tomahawk Ultra today (and on Rubin NVSwitches in the next generation) but no BW lift. `05_contention_and_congestion.md` §5 layers realistic $\eta$ on each of these rows and quantifies which speedups survive contention.
 
@@ -423,24 +423,24 @@ The pattern across all six primitives: **AR is the only primitive where INC pays
 | Topology | Primitive | Algorithm | α term | BW term | INC-on-star speedup (small M / large M) |
 |---|---|---|---|---|---|
 | **Star** | AR | Ring | $2(N-1)\\,\alpha$ | $2(N-1)/N \cdot M/\mathrm{BW}$ | $\sim (N-1)\times$ / $\sim 2\times$ |
-|  | AR | DBT | $2\lceil\log_2 N\rceil\\,\alpha$ | $2(N-1)/N \cdot M/\mathrm{BW}$ | $\sim \log_2 N\times$ / $\sim 2\times$ |
+|  | AR | DBT | $2\lceil\log_2 N\rceil\\,\alpha$ | $2 \cdot M/\mathrm{BW}$ | $\sim \log_2 N\times$ / $\sim 2\times$ |
 |  | AR | **INC** (ALU + multicast) | $2\\,\alpha_{\mathrm{switch}}$ | $M/\mathrm{BW}$ | — (reference) |
 |  | AG / RS | Ring | $(N-1)\\,\alpha$ | $(N-1)/N \cdot M/\mathrm{BW}$ | $\sim (N-1)/2\\,\times$ / $1\times$ |
 |  | AG / RS | **INC** (multicast or ALU+scatter) | $2\\,\alpha_{\mathrm{switch}}$ | $(N-1)/N \cdot M/\mathrm{BW}$ | — (reference) |
-|  | BC / Reduce | Pipelined tree (DBT) | $\lceil\log_2 N\rceil\\,\alpha$ | $M/\mathrm{BW}$ | $\sim \log_2 N\times$ / $1\times$ |
-|  | BC / Reduce | **INC** (multicast or ALU) | $\alpha_{\mathrm{switch}}$ | $M/\mathrm{BW}$ | — (reference) |
-|  | A2A | Pairwise | $(N-1)\\,\alpha$ | $(N-1)/N \cdot M/\mathrm{BW}$ | $\sim (N-1)\times$ / $1\times$ (vs HW A2A); no speedup with SHARP-class only |
-|  | A2A | **INC** (HW A2A scatter-gather; §1.3) | $\alpha_{\mathrm{switch}}$ | $(N-1)/N \cdot M/\mathrm{BW}$ | — (reference; ships on Tomahawk Ultra / Rubin) |
-| **Torus** | AR | Dim-decomp ring | $2\sum_i (D_i-1)\\,\alpha$ | $2(N-1)/N \cdot M/\mathrm{BW}$ | $\sim \sum_i (D_i-1)\times$ / $\sim 2\times$ |
-|  | AG / RS | Dim-decomp ring | $\sum_i (D_i-1)\\,\alpha$ | $(N-1)/N \cdot M/\mathrm{BW}$ | $\sim \sum_i (D_i-1)/2\\,\times$ / $1\times$ |
-|  | BC / Reduce | Dim-decomp bidirectional | $\sum_i \lfloor D_i/2 \rfloor\\,\alpha$ | $M/\mathrm{BW}$ | $\sim \sum_i \lfloor D_i/2 \rfloor\\,\times$ / $1\times$ |
-|  | A2A | Pairwise — bisection-bound | $\mathrm{diam}\cdot\alpha$ | $D_{\max}/8 \cdot M/\mathrm{BW}$ | $\sim \mathrm{diam}\times$ / $\sim D_{\max}/8\\,\times$ ($1\times$ at $8^3$; $\sim 2\times$ at $16^3$ — typical TPU pod slice shape) |
+|  | BC / Reduce | Pipelined tree (two-tree) | $\lceil\log_2 N\rceil\\,\alpha$ | $M/\mathrm{BW}$ | $\sim \log_2 N / 2\\,\times$ / $1\times$ |
+|  | BC / Reduce | **INC** (multicast or ALU) | $2\\,\alpha_{\mathrm{switch}}$ | $M/\mathrm{BW}$ | — (reference) |
+|  | A2A | Pairwise | $(N-1)\\,\alpha$ | $(N-1)/N \cdot M/\mathrm{BW}$ | $\sim (N-1)/2\\,\times$ / $1\times$ (vs HW A2A); no speedup with SHARP-class only |
+|  | A2A | **INC** (HW A2A scatter-gather; §1.3) | $2\\,\alpha_{\mathrm{switch}}$ | $(N-1)/N \cdot M/\mathrm{BW}$ | — (reference; ships on Tomahawk Ultra; planned for Rubin) |
+| **Torus** | AR | Dim-decomp ring | $2\sum_i (d_i-1)\\,\alpha$ | $2(N-1)/N \cdot M/\mathrm{BW}$ | $\sim \sum_i (d_i-1)\times$ / $\sim 2\times$ |
+|  | AG / RS | Dim-decomp ring | $\sum_i (d_i-1)\\,\alpha$ | $(N-1)/N \cdot M/\mathrm{BW}$ | $\sim \sum_i (d_i-1)/2\\,\times$ / $1\times$ |
+|  | BC / Reduce | Dim-decomp bidirectional | $\sum_i \lfloor d_i/2 \rfloor\\,\alpha$ | $M/\mathrm{BW}$ | $\sim \sum_i \lfloor d_i/2 \rfloor / 2\\,\times$ / $1\times$ |
+|  | A2A | Ring relay — bisection-bound | $\mathrm{diam}\cdot\alpha$ | $d_{\max}/8 \cdot M/\mathrm{BW}$ | $\sim \mathrm{diam}/2\\,\times$ / $\sim d_{\max}/8\\,\times$ ($1\times$ at $8^3$; $\sim 2\times$ at $16^3$ — typical TPU pod slice shape) |
 
-Star-row α and BW-eff values match §1.4's per-primitive summary; the torus rows are the dim-decomposed costs from `02_topology_mapping.md §3` plugged in for the architectural-swap comparison. Three observations on the INC-star vs torus comparison:
+Small-$M$ speedups are α-term ratios at equal per-hop $\alpha$. Star-row α and BW-eff values match §1.4's per-primitive summary; the torus rows are the dim-decomposed costs from `02_topology_mapping.md §3` plugged in for the architectural-swap comparison. Three observations on the INC-star vs torus comparison:
 
-1. **AR is the only primitive where INC-on-star structurally beats torus on BOTH axes.** α-side: $\sim \sum_i(D_i-1)$ hops on torus vs $\sim 2$ on INC-star — a deep-vs-shallow tree gap. BW-side: torus AR pays the same $2\times$ dual-touch BW penalty as software-on-star ($\mathrm{BW_{eff}} = \mathrm{BW}/2$), while INC-on-star halves per-rank traffic via the composed switch ALU + multicast xbar pair → $\mathrm{BW_{eff}} = \mathrm{BW}$. **Torus has no analog of this composition.** So INC-star beats torus on AR at every $M$: ~2× from BW alone at large $M$, plus the α-side gap at smaller $M$.
-2. **For α-only primitives (AG / RS / BC / Reduce), INC-star and torus are α-side competitors; both saturate link BW.** Torus dim-decomp on a full-duplex ring achieves $\mathrm{BW_{eff}} = \mathrm{BW}$, just like ring AG / pipelined-tree BC on a star. The remaining gap is α-only — INC-star's $\sim \alpha_{\mathrm{switch}}$ or $2\alpha_{\mathrm{switch}}$ vs torus's $\sum_i(D_i-1)\\,\alpha$ or $\sum_i \lfloor D_i/2\rfloor\\,\alpha$. At production sizes ($N = 512$ as 8³ torus: $\sum(D_i-1) = 21$, $\sum\lfloor D_i/2\rfloor = 12$), INC-star's α-side advantage is order of magnitude in the latency-bound regime; at large $M$ both architectures converge to the same $M/\mathrm{BW}$ ceiling. **The choice between INC-star and torus on these four is rarely a deal-breaker** — deployment-side considerations (rack power, switch radix, cabling) often dominate.
-3. **A2A's topology choice flips with hardware availability.** SHARP-class INC gives A2A no win on any hardware. With HW A2A (Tomahawk Ultra today, Rubin NVSwitches next), star + HW A2A collapses α to $\sim \alpha_{\mathrm{switch}}$ but the BW term stays bisection-bound — same as torus. So both architectures end up bisection-bound; INC-star edges out torus only on α. **Without HW A2A (current GB200 NVL72 / Quantum-X800), A2A on a star pays the full software $(N-1)\\,\alpha$, and torus's $\mathrm{diam}\cdot\alpha$ saves an order of magnitude** — making torus the natural fallback for A2A-heavy workloads (TPU / Trainium clusters lean on this; star-only deployments without HW A2A struggle on MoE EP traffic). The right topology decision flips depending on whether the deployment has HW A2A — the most fabric-architecture-sensitive primitive in this comparison.
+1. **AR is the only primitive where INC-on-star structurally beats torus on BOTH axes.** α-side: $2\sum_i(d_i-1)$ hops on torus vs $2$ on INC-star — a deep-vs-shallow tree gap. BW-side: torus AR pays the same $2\times$ dual-touch BW penalty as software-on-star ($\mathrm{BW_{eff}} = \mathrm{BW}/2$), while INC-on-star halves per-rank traffic via the composed switch ALU + multicast xbar pair → $\mathrm{BW_{eff}} = \mathrm{BW}$. **Torus has no analog of this composition.** So INC-star beats torus on AR at every $M$: ~2× from BW alone at large $M$, plus the α-side gap at smaller $M$.
+2. **For α-only primitives (AG / RS / BC / Reduce), INC-star and torus are α-side competitors; both saturate link BW.** Torus dim-decomp on a full-duplex ring achieves $\mathrm{BW_{eff}} = \mathrm{BW}$, just like ring AG / pipelined-tree BC on a star. The remaining gap is α-only — INC-star's $2\alpha_{\mathrm{switch}}$ vs torus's $\sum_i(d_i-1)\\,\alpha$ or $\sum_i \lfloor d_i/2\rfloor\\,\alpha$. At production sizes ($N = 512$ as 8³ torus: $\sum(d_i-1) = 21$, $\sum\lfloor d_i/2\rfloor = 12$), INC-star's α-side advantage is order of magnitude in the latency-bound regime; at large $M$ both architectures converge to the same $M/\mathrm{BW}$ ceiling. **The choice between INC-star and torus on these four is rarely a deal-breaker** — deployment-side considerations (rack power, switch radix, cabling) often dominate.
+3. **A2A's topology choice flips with hardware availability.** SHARP-class INC gives A2A no win on any hardware. With HW A2A (Tomahawk Ultra today, Rubin NVSwitches next), star + HW A2A collapses α to $\sim 2\alpha_{\mathrm{switch}}$ but the BW term stays at the per-port bound $(N-1)/N \cdot M/\mathrm{BW}$ — the same size as an $8^3$ torus's bisection-bound term. Neither architecture escapes its BW bound; INC-star edges out torus only on α. **Without HW A2A (current GB200 NVL72 / Quantum-X800), A2A on a star pays the full software $(N-1)\\,\alpha$, and torus's $\mathrm{diam}\cdot\alpha$ saves an order of magnitude** — making torus the natural fallback for A2A-heavy workloads (TPU / Trainium clusters lean on this; star-only deployments without HW A2A struggle on MoE EP traffic). The right topology decision flips depending on whether the deployment has HW A2A — the most fabric-architecture-sensitive primitive in this comparison.
 
 **Limitations** — every cost formula above is an algorithmic ceiling. Six restrictions apply in practice:
 
@@ -448,7 +448,7 @@ Star-row α and BW-eff values match §1.4's per-primitive summary; the torus row
 2. **Reducible types: limited.** Production switch ALUs support sum, max, min, bit-and/or/xor, and a few related ops over BF16/FP16/FP32 (FP64 varies by switch generation). **Compound reductions like softmax (which requires exp() + sum + per-element division) and top-k are not supported in shipping SHARP-class hardware** — they fall back to either in-fabric approximations on programmable-pipeline switches (Tofino-class research prototypes; published academic work but not productized) or full software execution. Roadmap extensions (Rubin-generation NVSwitches and successor Quantum SHARP versions) may broaden the op set; verify against current vendor documentation when reduction semantics matter beyond the standard set.
 3. **Precision: hardware-fixed.** Switch ALUs typically operate in BF16 with FP32 accumulators; some SHARP-enabled IB switches support FP32 directly. The accumulation order is also fixed by the switch tree shape, which can produce slightly different numerical results than ring AR — usually within numerical tolerance but worth flagging for bitwise-reproducibility use cases.
 4. **Message alignment.** INC operations require specific alignment (typically 128 B or higher); very small messages can fall through to software — NCCL's heuristic handles this, but a sweep across $M$ may show a sudden floor where the runtime switches paths.
-5. **BW-regime convergence.** INC's dominant win is in the latency-term regime. AR's $\sim$70× speedup at small $M$ shrinks to $\sim 2\times$ at large $M$; AG / RS / BC / Reduce shrink to $1\times$; A2A's HW A2A gain similarly converges to $1\times$ at the bisection bound.
+5. **BW-regime convergence.** INC's dominant win is in the latency-term regime. AR's small-$M$ speedup (e.g. $\sim 71\times$ over ring at $N = 72$) shrinks to $\sim 2\times$ at large $M$; AG / RS / BC / Reduce shrink to $1\times$; A2A's HW A2A gain similarly converges to $1\times$ at the bisection bound.
 6. **Ceilings vs realized speedups.** The ratios above are **algorithmic ceilings** — they assume frictionless cut-through pipelining, no multicast contention, and no NCCL / switch-ALU scheduling overhead. Realized speedups on production hardware are smaller (e.g., NVLink NVLS measures $\sim 1.3\times$ BW-regime lift vs the $2\times$ ceiling). The full contention-coefficient treatment — calibrating $\eta_\alpha, \eta_\beta$ against published busbw measurements and re-running the comparison under realistic factors — is in `05_contention_and_congestion.md`.
 
 ---
@@ -456,9 +456,9 @@ Star-row α and BW-eff values match §1.4's per-primitive summary; the torus row
 ## Further reading
 
 - **`01_collective_algorithms.md`** — baseline ring and tree AR costs that INC compresses against; the $\alpha$-$\beta$ model and the Rabenseifner / DBT derivations referenced throughout.
-- **`02_topology_mapping.md` §2** — $\alpha$ / BW calibration on a scale-up star and star-specific observations (e.g., DBT's port-uniform utilization on the crossbar). §5.1 observation 6 flags INC as star's $\alpha$-compression escape hatch.
-- **`05_contention_and_congestion.md`** — contention coefficients that modify software collectives; INC paths are less sensitive to contention because they use only one switch operation.
-- **`03_hierarchical_topologies.md` §3** — how INC at both tiers of the hierarchy composes: outer-tier INC (Quantum SHARP / Spectrum-X SHARP / Tomahawk Ultra at the Clos spine) for the biggest absolute α saving, and inner-tier INC (NVLS within an NVL72 pod) for the residual α plus the BW-eff lift on intra-pod AR. NVLS + Quantum SHARP combined brings hierarchical AR at L = 32 pods to roughly the cost of a single-pod NVLS AR.
-- **`references.md`** — primary sources for SHARP (Graham et al. 2016), NVLink SHARP / NVLS (NVIDIA 2023 whitepapers, NCCL 2.27 release notes), and Tomahawk Ultra INC (Broadcom 2025).
+- **`02_topology_mapping.md` §2** — $\alpha$ / BW calibration on a scale-up star and the single-port note for DBT (§2.3). §5.1 observation 6 flags INC as star's $\alpha$-compression escape hatch.
+- **`05_contention_and_congestion.md`** — contention coefficients that modify software collectives; INC paths avoid the per-step $\alpha$ inflation (one switch operation), but in the §4.1 calibration NVLS realizes the smallest fraction of raw BW ($\eta_\beta \approx 0.52$).
+- **`03_hierarchical_topologies.md` §3** — how INC at both tiers of the hierarchy composes: outer-tier INC (Quantum SHARP / Spectrum-X SHARP at the Clos spine) for the biggest absolute α saving, and inner-tier INC (NVLS within an NVL72 pod) for the residual α (the AR BW-eff lift applies where an AR primitive runs — the outer sub-AR, or an AR confined to one pod). With both, hierarchical AR at $L = 32$ pods and $M = 16\\,\mathrm{MB}$ costs ~42 μs — about 2.3× a single-pod NVLS AR (~18 μs); the residual is the inner RS / AG BW terms, which INC does not lift.
+- **`references.md`** — primary sources for SHARP (Graham et al. 2016), NVLink SHARP / NVLS (GTC session and NCCL tuning guide; NCCL 2.27 blog), and Tomahawk Ultra INC (Broadcom 2025).
 - **Graham et al. (2016)**, "Scalable Hierarchical Aggregation Protocol (SHARP)" — the architectural paper.
-- **NVIDIA (2023)**, NVLink SHARP and NVSwitch Multicast/Reduce Whitepapers.
+- **NVIDIA**, NVLink SHARP (NVLS) materials — see `[NVLINK-SHARP]` in `references.md`.

@@ -3,7 +3,7 @@
 **Author:** Yue Lu  
 **Date:** April 2026  
 
-The previous note (`01_collective_algorithms.md`) costs collective primitives on an abstract fully-connected fabric. Real clusters don't have that. Inside a scale-up domain they have a star topology of GPUs around an NVSwitch, a 2D / 3D torus for TPU pods, or a mesh for chiplet interposers or short-reach PCIe fabrics. This note focuses on those **single-tier, scale-up** topologies — walking through each with a 2×2-style diagram, showing how ring / tree / dim-decomposed ring AR maps onto each, and deriving the per-primitive cost formulas summarized by topology in §5. The canonical scale-out / multi-tier fabric — fat-tree / Clos — is inherently hierarchical and lives in `03_hierarchical_topologies.md` §2 alongside the composition rules that apply once topologies layer.
+The previous note (`01_collective_algorithms.md`) costs collective primitives on an abstract fully-connected fabric. Real clusters don't have that. Inside a scale-up domain they have a star topology of GPUs around an NVSwitch, a 2D / 3D torus for TPU pods, or a mesh for chiplet interposers or short-reach PCIe fabrics. This note focuses on those **single-tier, scale-up** topologies — walking through each with a 2×2-style diagram, showing how ring / tree / dim-decomposed ring AR maps onto each, and deriving the per-primitive cost formulas summarized by topology in §5. The canonical scale-out / multi-tier fabric — fat-tree / Clos — is inherently hierarchical and lives in `03_hierarchical_topologies.md` §1, ahead of the composition rules (§2 there) that apply once topologies layer.
 
 No network contention modeled here — every physical link is assumed to carry the active collective alone at peak bandwidth, with no concurrent flows from other collectives, other groups, or background traffic sharing the link. Realistic link sharing, bisection oversubscription, and concurrent-group conflicts are scored in `05_contention_and_congestion.md`.
 
@@ -38,7 +38,7 @@ No network contention modeled here — every physical link is assumed to carry t
 
 ## 1. Topology primer
 
-This note is a three-topology catalog of **single-tier, scale-up** fabrics: **star** (endpoints around a central high-radix switch — e.g., NVSwitch, §2), **torus** (a $k$-dimensional lattice with wraparound — e.g., TPU pods, §3), and **mesh** (direct all-to-all or $k$-D lattice without wraparound — e.g., chiplet interposer, PCIe point-to-point, §4). Star and torus cover scale-up domains at pod level; mesh covers short-reach direct fabrics. The canonical scale-out / multi-tier fabric — **fat-tree / Clos** — is inherently hierarchical and covered in `03_hierarchical_topologies.md` §2. Four properties describe any topology:
+This note is a three-topology catalog of **single-tier, scale-up** fabrics: **star** (endpoints around a central high-radix switch — e.g., NVSwitch, §2), **torus** (a $k$-dimensional lattice with wraparound — e.g., TPU pods, §3), and **mesh** (direct all-to-all or $k$-D lattice without wraparound — e.g., chiplet interposer, PCIe point-to-point, §4). Star and torus cover scale-up domains at pod level; mesh covers short-reach direct fabrics. The canonical scale-out / multi-tier fabric — **fat-tree / Clos** — is inherently hierarchical and covered in `03_hierarchical_topologies.md` §1. Four properties describe any topology:
 
 - **Diameter** $D$: hop count between the farthest rank pair.
 - **Bisection bandwidth**: total BW across the narrowest cut that splits the ranks into two equal halves.
@@ -63,7 +63,7 @@ All $N$ endpoints attach to one central switch. $D = 2$ link hops (endpoint → 
 
 ### 1.2 Torus (2D or 3D lattice with wraparound)
 
-Ranks are laid out on a $k$-dimensional lattice with dim sizes $(d_1, \ldots, d_k)$; each rank connects to its +1 and −1 neighbors per dim, with wraparound closing each axis into a ring. The neighbor count per rank is $\sum_i \min(d_i - 1, 2)$ — **at most $2k$**, reached when every $d_i \geq 3$. At a dim with $d_i = 2$ the +1 and −1 neighbors coincide, so that dim contributes 1 neighbor instead of 2. Asymmetric shapes may or may not trigger this — it depends per-dim: e.g., an $A \times A \times B$ torus with $A \geq 3$ and $B = 2$ gives $2 + 2 + 1 = 5$ neighbors per rank, but the same shape with $B = 4$ (or any $B \geq 3$) saturates back to $2 + 2 + 2 = 6$ because the $\min(d_i - 1, 2)$ term caps at 2 once $d_i$ clears 3. Google TPU pods use a 3D torus (typically symmetric — TPU v5p's 16×16×16 — so all dims are non-degenerate).
+Ranks are laid out on a $k$-dimensional lattice with dim sizes $(d_1, \ldots, d_k)$; each rank connects to its +1 and −1 neighbors per dim, with wraparound closing each axis into a ring. The neighbor count per rank is $\sum_i \min(d_i - 1, 2)$ — **at most $2k$**, reached when every $d_i \geq 3$. At a dim with $d_i = 2$ the +1 and −1 neighbors coincide, so that dim contributes 1 neighbor instead of 2. Asymmetric shapes may or may not trigger this — it depends per-dim: e.g., an $A \times A \times B$ torus with $A \geq 3$ and $B = 2$ gives $2 + 2 + 1 = 5$ neighbors per rank, but the same shape with $B = 4$ (or any $B \geq 3$) saturates back to $2 + 2 + 2 = 6$ because the $\min(d_i - 1, 2)$ term caps at 2 once $d_i$ clears 3. Google TPU pods use a 3D torus (typically symmetric — TPU v4's 16×16×16 full pod — so all dims are non-degenerate).
 
 ```
 Torus structure: d = 2 per axis (degenerate, 1 link/dim) vs d ≥ 3 per axis (non-degenerate, 2 links/dim). Neighbors per rank = Σᵢ min(dᵢ − 1, 2).
@@ -138,7 +138,7 @@ Torus structure: d = 2 per axis (degenerate, 1 link/dim) vs d ≥ 3 per axis (no
          Y:  (0,0,2), (0,2,2)   — both in Z = 2 slice; Y = 1 is interior so both direct
          Z:  (0,1,1), (0,1,0)*  — (0,1,1) in Z = 1 slice; (0,1,0)* in Z = 0 slice (wrap Z = 2 → 0)
 
-     production TPU v5p pods: 16×16×16 = 4096 ranks (same structure, each axis a 16-ring)
+     production TPU v4 pods: 16×16×16 = 4096 ranks (same structure, each axis a 16-ring)
 
 ──────────── Asymmetric shapes: degeneration is per-dim, not per-shape ────────────
 
@@ -184,8 +184,8 @@ Full mesh (4 ranks):        2D mesh example: 4×4 = 16 ranks (no wraparound)
    R3 ━━━━━ R2              (no edges wrap around between (3,·) and (0,·))
 ```
 
-- **Pros:** full mesh removes the switch entirely — endpoint-to-endpoint α drops the cut-through hop — and every pair owns its own dedicated link so A2A is free of bisection or port-sharing pressure. $k$-D mesh retains torus's product-structured dim-decomposition — same $O(N^{1/k})$ α scaling for AR / AG / RS, just with each dim-phase running an open-line RS/AG instead of a closed-ring RS/AG (roughly 2× the α-coefficient per dim because the line loses the ring's bidirectional parallelism, but the $O(N^{1/k})$ order is preserved) — while using fewer physical links (no wraparound edges).
-- **Cons:** full mesh has $O(N^2)$ wire count and $O(N)$ ports-per-rank, practically capping at ~8–16 endpoints (legacy DGX-1/DGX-2 hybrid cube-mesh, chiplet interposer fabrics). $k$-D mesh has half the bisection of a same-shape torus because the wraparound links are missing — A2A pays a 2× BW penalty relative to torus. $k$-D mesh inherits the same realistic-η and fault-tolerance weaknesses as torus (lattice continuity breaks on rank failure; details in `05_contention_and_congestion.md` §4). Full mesh is more forgiving on both axes — single-hop paths avoid the per-hop η accumulation, and any-to-any wiring means a rank failure only removes that endpoint without breaking any continuity structure.
+- **Pros:** full mesh removes the switch entirely — endpoint-to-endpoint α drops the cut-through hop — and every pair owns its own dedicated link so A2A is free of bisection pressure and of inter-pair link contention (the per-rank port budget still applies in the α-β model — §4.1). $k$-D mesh retains torus's product-structured dim-decomposition — same $O(N^{1/k})$ α scaling for AR / AG / RS, with each dim-phase running an open-line RS/AG instead of a closed-ring RS/AG at the same $(d_i - 1)$ α per dim (§4.2); only bidirectional BC / Reduce and the A2A diameter lose the ring's wraparound shortcut, roughly doubling their per-dim α-coefficient from $\lfloor d_i/2 \rfloor$ to $d_i - 1$ — while using fewer physical links (no wraparound edges).
+- **Cons:** full mesh has $O(N^2)$ wire count and $O(N)$ ports-per-rank, practically capping at ~8–16 endpoints (chiplet interposer fabrics; the legacy 8-GPU DGX-1 hybrid cube-mesh was already only a partial mesh). $k$-D mesh has half the bisection of a same-shape torus because the wraparound links are missing — A2A pays a 2× BW penalty relative to torus. $k$-D mesh inherits the same realistic-η and fault-tolerance weaknesses as torus (lattice continuity breaks on rank failure; details in `05_contention_and_congestion.md` §4). Full mesh is more forgiving on both axes — single-hop paths avoid the per-hop η accumulation, and any-to-any wiring means a rank failure only removes that endpoint without breaking any continuity structure.
 
 ---
 
@@ -196,23 +196,23 @@ Full mesh (4 ranks):        2D mesh example: 4×4 = 16 ranks (no wraparound)
 **α and BW calibration on a scale-up star.** On NVLink-5 / NVSwitch Gen4 class hardware:
 
 - $\alpha \approx 0.5\\,\mu$s — switch cut-through ($\sim$100 ns) plus endpoint software overhead ($\sim$400 ns). Each algorithm "hop" in the star primitive costs this $\alpha$, which already includes the physical 2-link endpoint→switch→endpoint traversal as a single cut-through event.
-- $\mathrm{BW} \approx 900\\,\mathrm{GB/s}$ per direction per GPU — a single NVLink-5 port's unidirectional bandwidth. All cost formulas from the prior note use this as the per-port BW.
+- $\mathrm{BW} \approx 900\\,\mathrm{GB/s}$ per direction per GPU — the GPU's aggregate unidirectional bandwidth over its 18 NVLink-5 links ($\approx 50\\,\mathrm{GB/s}$ per direction per link), modeled as one logical port. All cost formulas from the prior note use this as the per-port (per-rank) BW.
 
 ### 2.1 Broadcast
 
 **Relation to `01_collective_algorithms.md` §3.** All three options from the prior note — ring BC (§3.1), binomial-tree BC (§3.2), and hardware switch multicast (§3.3) — run on a star at their pure costs. Star contributes only the α and BW calibration above.
 
-**Commercial shipment.** NCCL ships binomial-tree BC on star as the default software path. NVSwitch Gen3+ / NVLS exposes the switch-multicast primitive that collapses α to the $2\alpha_{\mathrm{switch}}$ $N$-independent floor (see `04_in_network_collectives.md` §1.2).
+**Commercial shipment.** Binomial-tree BC is the MPI-library software path. NCCL's `ncclBroadcast` runs the ring algorithm only — its tuner restricts Broadcast and Reduce to ring, and the tree (DBT) path is AllReduce-only — so NCCL BC on star pays ring's $(N{-}1)\alpha$ rather than the tree's $\lceil \log_2 N \rceil \alpha$. NVSwitch Gen3+ / NVLS has the switch-multicast capability that collapses α to the $2\alpha_{\mathrm{switch}}$ $N$-independent floor (see `04_in_network_collectives.md` §1.2), though NCCL does not route `ncclBroadcast` through it.
 
 ### 2.2 Reduce
 
-**Relation to `01_collective_algorithms.md` §4.** Reduce is the time-reverse dual of BC: ring Reduce (§4.1), binomial-tree Reduce (§4.2), and switch-ALU Reduce / SHARP / NVLS (§4.3) all run on a star at their pure costs. Per `01_collective_algorithms.md` §4.3, tree strictly dominates ring across the full $M$-range for standalone Reduce (same BW floor, smaller α), so star's effective menu reduces to tree + INC.
+**Relation to `01_collective_algorithms.md` §4.** Reduce is the time-reverse dual of BC: ring Reduce (§4.1), binomial-tree Reduce (§4.2), and switch-ALU Reduce / SHARP / NVLS (§4.3) all run on a star at their pure costs. Per `01_collective_algorithms.md` §4.3, tree strictly dominates ring across the full $M$-range for standalone Reduce (same BW floor, smaller α), so on α-β grounds star's effective menu reduces to tree + INC.
 
-**Commercial shipment.** NCCL ships tree Reduce on star. NVSwitch Gen3+ / NVLS and InfiniBand SHARP provide the switch-ALU path that collapses the α count to an $N$-independent constant (see `04_in_network_collectives.md` §1.1).
+**Commercial shipment.** Tree Reduce is the MPI-library software path; NCCL's `ncclReduce`, like its Broadcast, runs the ring algorithm only (§2.1). NVSwitch Gen3+ / NVLS and InfiniBand SHARP provide the switch-ALU path that collapses the α count to an $N$-independent constant (see `04_in_network_collectives.md` §1.1), though NCCL does not route `ncclReduce` through NVLS.
 
 ### 2.3 All-reduce
 
-**Relation to `01_collective_algorithms.md` §5.** All four AR algorithms from the prior note (ring in §5.1, DBT in §5.2, plus simple rec-doubling in App. B.1 and Rabenseifner in App. B.2 for reference) run on a star at their pure costs — no topology correction, no dim-decomposition. Star contributes only the α and BW calibration above.
+**Relation to `01_collective_algorithms.md` §5.** All four AR algorithms from the prior note (ring in §5.1, DBT in §5.2, plus simple rec-doubling in App. B.1 and Rabenseifner in App. B.2 for reference) run on a star at their pure costs — no topology correction, no dim-decomposition. Star contributes only the α and BW calibration above. One port-model point matters for DBT: a star gives each rank a single port, so pipelined DBT runs at its single-port cost $2\lceil \log_2 N \rceil \alpha + 2\\,M/\mathrm{BW}$ — each rank moves $2M$ per direction through that port (`01_collective_algorithms.md` §5.2); the $M/\mathrm{BW}$ form needs a dedicated full-BW link for every tree edge (up to 4 per rank). DBT's BW coefficient of 2 is therefore marginally above ring's $2(N{-}1)/N$, and its advantage over ring is entirely on the α side.
 
 **Commercial shipment.** NCCL ships both ring and DBT on star. The $(N, M)$ selection behavior between them is a runtime-scheduler concern, not a topology concern — see `01_collective_algorithms.md` §5.3 for the algorithm-selection discussion.
 
@@ -232,13 +232,13 @@ Full mesh (4 ranks):        2D mesh example: 4×4 = 16 ranks (no wraparound)
 
 ## 3. Torus topology
 
-A torus trades star's algorithmic flexibility for linear wire cost at scale. The return on that trade is a single powerful optimization that distinguishes torus from star / fat-tree / Clos: **dim-decomposition** — rewriting each primitive as $k$ serial phases, one per physical dim, each running an independent $d_i$-rank ring on its own disjoint wiring. The payoff is structural: the flat-ring $O(N)$ α term collapses to $O(N^{1/k})$ while the bandwidth term stays at the flat-ring bandwidth optimum. **This is the sole reason a torus can match or beat a star for AR / AG / RS despite its longer average path length.** Take dim-decomposition away and a torus is strictly worse than a star for every primitive.
+A torus trades star's algorithmic flexibility for linear wire cost at scale. The return on that trade is a single powerful optimization that distinguishes torus from star / fat-tree / Clos: **dim-decomposition** — rewriting each primitive as $k$ serial phases, one per physical dim, each running an independent $d_i$-rank ring on its own disjoint wiring. The payoff is structural: the flat-ring $O(N)$ α term collapses to $O(N^{1/k})$ while the bandwidth term stays at the flat-ring bandwidth optimum. **This is the sole reason a torus can match or beat a star for AR / AG / RS despite its longer average path length.** Take dim-decomposition away and a torus is strictly worse than a star for AR / AG / RS. (A2A is the exception in the other direction: its cost is set by shortest-path relay and the bisection cut rather than by dim-decomposition — §3.6.)
 
-§3.1 develops the general dim-decomposition mechanism with a 2×2×2 visual; §3.2 and §3.3 cover BC and Reduce, and §3.4–§3.6 specialize dim-decomp to AR / AG / RS / A2A. Realistic-$\eta$ re-scoring of both wins and losses lives in `05_contention_and_congestion.md`.
+§3.1 develops the general dim-decomposition mechanism with a 2×2×2 visual; §3.2 and §3.3 cover BC and Reduce, §3.4–§3.5 specialize dim-decomp to AR / AG / RS, and §3.6 covers A2A, whose cost is set by shortest-path relay and the bisection cut instead. Realistic-$\eta$ re-scoring of both wins and losses lives in `05_contention_and_congestion.md`.
 
 ### 3.1 Dim-decomposition
 
-Dim-decomposition is the topology-aware rewrite that makes torus competitive on collective cost. This subsection defines the rewrite, visualizes the per-dim phases on a 2×2×2 torus, states the correctness / BW-optimality / latency-compression properties, and catalogs where the decomposition applies and where it breaks. The primitive-specific subsections (§3.2 BC, §3.3 Reduce, §3.4 AR, §3.5 AG/RS, §3.6 A2A) all specialize this framework — chunk-size bookkeeping, AG-vs-RS pairing, cost formulas.
+Dim-decomposition is the topology-aware rewrite that makes torus competitive on collective cost. This subsection defines the rewrite, visualizes the per-dim phases on a 2×2×2 torus, states the correctness / BW-optimality / latency-compression properties, and catalogs where the decomposition applies and where it breaks. The primitive-specific subsections (§3.2 BC, §3.3 Reduce, §3.4 AR, §3.5 AG/RS — and, for contrast, §3.6 A2A, which does not decompose) all build on this framework — chunk-size bookkeeping, AG-vs-RS pairing, cost formulas.
 
 **The rewrite.** A flat collective over $N$ ranks is decomposed into $k$ serial phases, one per physical dim. Within phase $i$, $(N/d_i)$ independent rings of size $d_i$ run *concurrently* on the $(N/d_i)$ dim-lines perpendicular to axis $i$; each ring uses only dim-$i$ links, and different rings share no wiring.
 
@@ -270,9 +270,9 @@ Phase Z  (Z-links carry all traffic; X and Y links idle):
     { a ↔ c },  { b ↔ d },  { e ↔ g },  { f ↔ h }.
 ```
 
-At $d_i = 2$ per axis (shown here) each "ring" collapses to a pair-exchange (direct ≡ wraparound); at $d_i \geq 3$ each phase runs genuine $d_i$-rings, but the structure "each phase uses only its axis's links, rings run concurrently on disjoint wiring" is unchanged. A TPU v5p $16 \times 16 \times 16$ torus runs 256 concurrent 16-rings per dim-phase.
+At $d_i = 2$ per axis (shown here) each "ring" collapses to a pair-exchange (direct ≡ wraparound); at $d_i \geq 3$ each phase runs genuine $d_i$-rings, but the structure "each phase uses only its axis's links, rings run concurrently on disjoint wiring" is unchanged. A TPU v4 $16 \times 16 \times 16$ torus runs 256 concurrent 16-rings per dim-phase.
 
-**Concrete savings vs flat ring on the same 8 ranks.** To see what dim-decomposition buys, compare against running a flat 8-ring schedule on the same 2×2×2 torus (ignoring the product structure — the linearized rank order still runs correctly, but each logical hop crosses many physical torus links on average):
+**Concrete savings vs flat ring on the same 8 ranks.** To see what dim-decomposition buys, compare against running a flat 8-ring schedule on the same 2×2×2 torus (ignoring the product structure — the linearized rank order still runs correctly; a naive rank-order linearization like the one drawn below makes some logical hops span more than one physical link, while a Hamiltonian (Gray-code) ordering keeps every logical hop on a single link — either way the sequential hop count stays at $N - 1$):
 
 ```
 Flat-ring schedule on 2×2×2 torus (8 ranks linearized into a single ring):
@@ -310,10 +310,10 @@ Dim-decomposed schedule on 2×2×2 torus:
 
 **Where dim-decomposition breaks.** The compression is not a blanket win on torus:
 
-- You *can* still embed a flat $N$-ring on a torus (each logical hop then crosses many physical links), paying the full flat-ring $O(N)$ cost — dim-decomposition is the optimization that skips this, not the only correct schedule.
-- Compression requires **dim-aligned group layouts** (§3.4). Off-prefix groups collapse the decomposition back toward flat-ring.
+- You *can* still embed a flat $N$-ring on a torus (a Hamiltonian cycle keeps each logical hop on one physical link), paying the full flat-ring $O(N)$ cost — dim-decomposition is the optimization that skips this, not the only correct schedule.
+- Compression requires **dim-aligned group layouts** (§5.2 item 2). Off-prefix groups collapse the decomposition back toward flat-ring.
 - **A2A is bisection-bound, not per-port** (§3.6) — dim-decomposition doesn't help the BW side because A2A's aggregate cross-cut traffic is fixed by semantics, not schedule. Cost scales with $d_{\max}$, not $N$.
-- **Asymmetric dim sizes pay disproportionately** — a pathological shape like $256 \times 2 \times 2$ costs far more than cubic $8 \times 8 \times 8$ at the same $N$.
+- **Asymmetric dim sizes pay disproportionately** — a pathological shape like $128 \times 2 \times 2$ costs far more than cubic $8 \times 8 \times 8$ at the same $N = 512$ ($16\times$ on the A2A BW term, §3.6).
 
 ### 3.2 Broadcast
 
@@ -436,7 +436,7 @@ y=0  │ V │ V │ V │
 Total: 2 α + M/BW  (vs unidirectional ring's (3-1) + (3-1) = 4 α — 2× α win.)
 ```
 
-On a 3-ring, bidirectional completes in 1 α per dim because each rank's two ring-neighbors cover the rest of the ring. For larger $d_i$ the pattern generalizes to a $\lfloor d_i/2 \rfloor$-step wave radiating outward from the source (e.g., 4-ring = 2 α, 8-ring = 4 α). The 2×2×2 worked example below uses $d_i = 2$ where bidirectional and unidirectional coincide trivially (1 α per dim).
+On a 3-ring, bidirectional completes in 1 α per dim because each rank's two ring-neighbors cover the rest of the ring. For larger $d_i$ the pattern generalizes to a $\lfloor d_i/2 \rfloor$-step wave radiating outward from the source (e.g., 4-ring = 2 α, 8-ring = 4 α). The 2×2×2 worked example above uses $d_i = 2$ where bidirectional and unidirectional coincide trivially (1 α per dim).
 
 **Cost formula.** Each dim-$i$ phase is a $d_i$-rank pipelined ring BC at cost $(d_i - 1)\alpha + M/\mathrm{BW}$ unidirectional or $\lfloor d_i/2 \rfloor \alpha + M/\mathrm{BW}$ bidirectional (`01_collective_algorithms.md` §3.1). With pipelining across the $k$ dim phases, the BW term telescopes into a single $M/\mathrm{BW}$ (each phase re-uses the payload pipelined in from the previous dim, so only the source-side dispatch bottleneck — one $M$-worth of bytes through one outbound port — lands on the wall clock):
 
@@ -583,13 +583,13 @@ As with BC, the torus has no in-network ALU (ICI is link-only) — so the α flo
 
 ### 3.4 All-reduce
 
-AR on a torus ships as **dim-decomposed ring** — the §3.1 framework with ring RS + AG as the inner per-dim primitive (Patarasuk-Yuan, `01_collective_algorithms.md` §5.1, just on a $d_i$-rank ring). TPU (XLA / JAX) and AWS Trainium (NeuronX CCL) both default to it. A tree-flavored alternative — **dim-decomposed Rabenseifner halving-doubling** — swaps the inner primitive from ring to halving-doubling for additional α compression; it is not shipping on any production torus stack (Appendix A has the full derivation) but serves as a reference point that sharpens the production-ring analysis.
+AR on a torus ships as **dim-decomposed ring** — the §3.1 framework with ring RS + AG as the inner per-dim primitive (Patarasuk-Yuan, `01_collective_algorithms.md` §5.1, just on a $d_i$-rank ring). TPU (XLA / JAX) and AWS Trainium (NeuronX CCL) both ship ring-based AR on their torus fabrics. A tree-flavored alternative — **dim-decomposed Rabenseifner halving-doubling** — swaps the inner primitive from ring to halving-doubling for additional α compression in algorithmic-step terms; it is not the production default on torus (NeuronX CCL does list an RDH all-reduce variant alongside ring [NEURON-CC]), and Appendix A has the full derivation together with the physical-hop accounting caveat that erases its advantage on ring wiring. It serves as a reference point that sharpens the production-ring analysis.
 
 **Algorithm.** Run ring RS+AG one dim at a time. Phase order on a 3D torus: X-RS, Y-RS, Z-RS, then Z-AG, Y-AG, X-AG — $2k$ phases total. The AG dims traverse in reverse of the RS dims so that chunk sizes grow back symmetrically to how they shrank during RS (required for clean BW telescoping below; not for correctness — any AG dim order finishes AR correctly).
 
 **Why it works — 2×2×2 worked example.** Eight ranks labeled a–h; each holds a length-8 input vector of size $M$ bytes (8 chunks of size $M/8$). Rank a's input is $[a_0, a_1, \ldots, a_7]$, rank b's is $[b_0, \ldots, b_7]$, and so on through h. The target AR output at every rank is $[\Sigma_0, \Sigma_1, \ldots, \Sigma_7]$ where $\Sigma_i = a_i + b_i + c_i + d_i + e_i + f_i + g_i + h_i$.
 
-We visualize state as two 2×2 slices (Z = 0 front, Z = 1 back) — the stacked-slice form from §1.2 — where the letter in each cell names the rank at that position. The schedule runs **3 RS phases** (X-RS → Y-RS → Z-RS) followed by **3 AG phases** (Z-AG → Y-AG → X-AG); each phase uses only its axis's links (§3.1).
+We visualize state as two 2×2 slices (Z = 0 bottom, Z = 1 top, per §3.1's Z-vertical drawing) — the stacked-slice form from §1.2 — where the letter in each cell names the rank at that position. The schedule runs **3 RS phases** (X-RS → Y-RS → Z-RS) followed by **3 AG phases** (Z-AG → Y-AG → X-AG); each phase uses only its axis's links (§3.1).
 
 ```
 Initial state — each rank holds its own 8-chunk input vector:
@@ -785,7 +785,7 @@ AR complete: every rank holds $[\Sigma_0, \Sigma_1, \ldots, \Sigma_7]$. Total ph
 
 **Cost formula — α-term derivation.** Each dim-$i$ phase runs a $d_i$-rank ring RS (or AG), whose ring-primitive α-cost from `01_collective_algorithms.md` §5.1 is $(d_i - 1)\\,\alpha$: a $d_i$-rank ring takes $d_i - 1$ sequential neighbor-exchange steps to complete one full RS (or AG) traversal. The schedule runs $k$ RS phases followed by $k$ AG phases, each on its own dim's ring, so the total sequential α-hops is the sum over *all* $2k$ phases:
 
-$$n_\alpha = \underbrace{\sum_{i=1}^{k} (d_i - 1)}_{\text{k RS phases}} \\;+\\; \underbrace{\sum_{i=1}^{k} (d_i - 1)}_{\text{k AG phases}} \\;=\\; 2 \sum_i (d_i - 1)$$
+$$n_\alpha = \underbrace{\sum_{i=1}^{k} (d_i - 1)}\_{\text{k RS phases}} \\;+\\; \underbrace{\sum_{i=1}^{k} (d_i - 1)}\_{\text{k AG phases}} \\;=\\; 2 \sum_i (d_i - 1)$$
 
 **Concrete counts** — the index $i$ ranges over the $k$ dims (for a 3D torus, $i \in \\{1, 2, 3\\}$ with $d_1, d_2, d_3$ the per-axis sizes):
 
@@ -796,16 +796,16 @@ $$n_\alpha = \underbrace{\sum_{i=1}^{k} (d_i - 1)}_{\text{k RS phases}} \\;+\\; 
 - **4×4×4 torus — TPU v4 / v5p single-rack cube** ($N = 64$, $k = 3$, all $d_i = 4$):
   $$n_\alpha = \sum_{i=1}^{3}(4 - 1) \\;+\\; \sum_{i=1}^{3}(4 - 1) \\;=\\; 9 + 9 \\;=\\; 18$$
 
-- **8×8×8 torus — TPU v4 / v5p multi-rack pod slice** ($N = 512$, used as the canonical anchor in §5 and `05_contention_and_congestion.md` §6):
+- **8×8×8 torus — TPU v4 / v5p multi-rack pod slice** ($N = 512$, used as the canonical anchor in `04_in_network_collectives.md` §3.1 and `05_contention_and_congestion.md` §5.1):
   $$n_\alpha = \sum_{i=1}^{3}(8 - 1) \\;+\\; \sum_{i=1}^{3}(8 - 1) \\;=\\; 21 + 21 \\;=\\; 42$$
 
-- **16×16×16 — TPU v4 / v5p full pod** ($N = 4096$, $k = 3$, all $d_i = 16$):
+- **16×16×16 — TPU v4 full pod** ($N = 4096$, $k = 3$, all $d_i = 16$):
   $$n_\alpha = \sum_{i=1}^{3}(16 - 1) \\;+\\; \sum_{i=1}^{3}(16 - 1) \\;=\\; 45 + 45 \\;=\\; 90$$
 
 - **Asymmetric 16×16×4** ($k = 3$, $d_1 = d_2 = 16$, $d_3 = 4$):
   $$n_\alpha = \big[(16-1) + (16-1) + (4-1)\big] + \big[(16-1) + (16-1) + (4-1)\big] \\;=\\; 33 + 33 \\;=\\; 66$$
 
-Note that phases are **sequential across dims** (X-RS waits for Y-RS to start; cannot overlap because the next phase's input is the current phase's output). The parallelism is **within** a phase — the $(N/d_i)$ independent dim-rings run concurrently on disjoint wiring (§3.1), which is what keeps the BW term bandwidth-optimal rather than inflating the α term.
+Note that phases are **sequential across dims** (Y-RS waits for X-RS to finish; cannot overlap because the next phase's input is the current phase's output). The parallelism is **within** a phase — the $(N/d_i)$ independent dim-rings run concurrently on disjoint wiring (§3.1), which is what keeps the BW term bandwidth-optimal rather than inflating the α term.
 
 **Cost formula — BW-term derivation.** The BW cost for a single dim-$i$ ring RS on a $d_i$-rank ring (from `01_collective_algorithms.md` §5.1) is $\frac{d_i - 1}{d_i} \cdot \frac{M'}{\mathrm{BW}}$, where $M'$ is the **per-rank input size at phase entry**. Each rank sends $(d_i - 1)/d_i$ fraction of its data through its one outgoing link during that ring.
 
@@ -823,7 +823,7 @@ $$\text{RS BW term} \\;=\\; \frac{M}{\mathrm{BW}} \cdot \left( \frac{d_x - 1}{d_
 
 **Telescoping trick.** Rewrite each summand using $(d - 1)/d = 1 - 1/d$:
 
-$$\underbrace{\left(1 - \tfrac{1}{d_x}\right)}_{\text{phase 1}} \\;+\\; \underbrace{\left(\tfrac{1}{d_x} - \tfrac{1}{d_x d_y}\right)}_{\text{phase 2}} \\;+\\; \underbrace{\left(\tfrac{1}{d_x d_y} - \tfrac{1}{d_x d_y d_z}\right)}_{\text{phase 3}} \\;=\\; 1 - \tfrac{1}{d_x d_y d_z} \\;=\\; \frac{N - 1}{N}$$
+$$\underbrace{\left(1 - \tfrac{1}{d_x}\right)}\_{\text{phase 1}} \\;+\\; \underbrace{\left(\tfrac{1}{d_x} - \tfrac{1}{d_x d_y}\right)}\_{\text{phase 2}} \\;+\\; \underbrace{\left(\tfrac{1}{d_x d_y} - \tfrac{1}{d_x d_y d_z}\right)}\_{\text{phase 3}} \\;=\\; 1 - \tfrac{1}{d_x d_y d_z} \\;=\\; \frac{N - 1}{N}$$
 
 Inner fractions cancel pairwise — $1/d_x$ from phase 1 cancels $1/d_x$ from phase 2's positive side; $1/(d_x d_y)$ cancels between phase 2 and phase 3 likewise. What survives is $1 - 1/N$. So:
 
@@ -843,7 +843,7 @@ $$\text{AG BW term} \\;=\\; \frac{M}{\mathrm{BW}} \cdot \left( \frac{d_z - 1}{d_
 
 These are the **same three summands as the RS sum** (just indexed in reverse), so the same telescoping collapse applies. Using $(d - 1)/d = 1 - 1/d$:
 
-$$\underbrace{\left(\tfrac{1}{d_x d_y} - \tfrac{1}{d_x d_y d_z}\right)}_{\text{phase 4}} \\;+\\; \underbrace{\left(\tfrac{1}{d_x} - \tfrac{1}{d_x d_y}\right)}_{\text{phase 5}} \\;+\\; \underbrace{\left(1 - \tfrac{1}{d_x}\right)}_{\text{phase 6}} \\;=\\; 1 - \tfrac{1}{N} \\;=\\; \frac{N - 1}{N}$$
+$$\underbrace{\left(\tfrac{1}{d_x d_y} - \tfrac{1}{d_x d_y d_z}\right)}\_{\text{phase 4}} \\;+\\; \underbrace{\left(\tfrac{1}{d_x} - \tfrac{1}{d_x d_y}\right)}\_{\text{phase 5}} \\;+\\; \underbrace{\left(1 - \tfrac{1}{d_x}\right)}\_{\text{phase 6}} \\;=\\; 1 - \tfrac{1}{N} \\;=\\; \frac{N - 1}{N}$$
 
 Same pairwise cancellation as RS — $1/d_x$ between phases 5 and 6, $1/(d_x d_y)$ between phases 4 and 5, with $1$ and $-1/N$ surviving. So:
 
@@ -851,7 +851,7 @@ $$\text{AG BW term} \\;=\\; \frac{N - 1}{N} \cdot \frac{M}{\mathrm{BW}}$$
 
 **RS and AG are BW-symmetric by construction**: each AG phase moves the same total bytes per rank as its paired RS phase (phase 4 mirrors phase 3, phase 5 mirrors phase 2, phase 6 mirrors phase 1). The byte-count match is why the two sums evaluate to the same $(N-1)/N \cdot M / \mathrm{BW}$. Combined:
 
-$$\text{Total BW term} \\;=\\; \underbrace{\frac{N-1}{N} \cdot \frac{M}{\mathrm{BW}}}_{\text{RS}} \\;+\\; \underbrace{\frac{N-1}{N} \cdot \frac{M}{\mathrm{BW}}}_{\text{AG}} \\;=\\; 2 \cdot \frac{N-1}{N} \cdot \frac{M}{\mathrm{BW}}$$
+$$\text{Total BW term} \\;=\\; \underbrace{\frac{N-1}{N} \cdot \frac{M}{\mathrm{BW}}}\_{\text{RS}} \\;+\\; \underbrace{\frac{N-1}{N} \cdot \frac{M}{\mathrm{BW}}}\_{\text{AG}} \\;=\\; 2 \cdot \frac{N-1}{N} \cdot \frac{M}{\mathrm{BW}}$$
 
 This is the flat-ring bandwidth-optimal floor, unchanged by dim-decomposition.
 
@@ -863,7 +863,7 @@ $$t_{\mathrm{torus,AR}} \\;=\\; 2 \sum_i (d_i - 1)\\,\alpha \\;+\\; 2 \cdot \fra
 
 - **2×2×2 torus** ($N = 8$): BW term $= 2 \cdot (7/8) \cdot M/\mathrm{BW} = (7/4) \cdot M/\mathrm{BW} \approx 1.75 \cdot M/\mathrm{BW}$.
 - **8×8×8 torus** ($N = 512$): BW term $= 2 \cdot (511/512) \cdot M/\mathrm{BW} \approx 1.996 \cdot M/\mathrm{BW}$.
-- **16×16×16 TPU v5p** ($N = 4096$): BW term $= 2 \cdot (4095/4096) \cdot M/\mathrm{BW} \approx 2 \cdot M/\mathrm{BW}$.
+- **16×16×16 TPU v4** ($N = 4096$): BW term $= 2 \cdot (4095/4096) \cdot M/\mathrm{BW} \approx 2 \cdot M/\mathrm{BW}$.
 
 At large $N$ the factor $(N-1)/N \to 1$, so AR asymptotically costs $2M/\mathrm{BW}$ on BW — same as flat-ring AR's BW bound.
 
@@ -871,8 +871,8 @@ At large $N$ the factor $(N-1)/N \to 1$, so AR asymptotically costs $2M/\mathrm{
 
 **Commercial adoption.** Dim-decomposed ring AR is the default AR primitive on production torus fabrics:
 
-- **Google TPU v4 / v5p** — 3D torus up to $16 \times 16 \times 16$ per slice; XLA / JAX emit dim-decomposed ring RS+AG for every sharded reduction [TPU-V4].
-- **AWS Trainium2** — each Trn2 instance is a 2D NeuronLink torus of 16 chips; Trn2 UltraServer composes four instances into a 3D 64-chip torus via a Z-dim NeuronLink [TRN2-ARCH]. NeuronX CCL ships dim-decomposed ring AR as the default kernel [NEURON-CC].
+- **Google TPU v4 / v5p** — 3D torus (TPU v4: up to $16 \times 16 \times 16 = 4096$ chips per pod; TPU v5p: 8,960-chip pods); XLA / JAX emit dim-decomposed ring RS+AG for every sharded reduction [TPU-V4].
+- **AWS Trainium2** — each Trn2 instance is a 2D NeuronLink torus of 16 chips; Trn2 UltraServer composes four instances into a 3D 64-chip torus via a Z-dim NeuronLink [TRN2-ARCH]. NeuronX CCL ships ring-based AR among its all-reduce variants (ring / mesh / KangaRing / RDH) [NEURON-CC].
 
 Message-size-specialized variants and runtime-scheduler tuning are outside this note's topology-mapping scope.
 
@@ -894,7 +894,7 @@ $$t_{\mathrm{torus,AG\\,or\\,RS,ring}} = \sum_i (d_i - 1)\\,\alpha + \frac{N-1}{
 
 ### 3.6 All-to-all
 
-**Relation to `01_collective_algorithms.md` §7.** The shipped algorithm is **ring relay** (§7.1) — §7.3's selection rule pegs ring relay as the natural fit on bisection-limited fabrics precisely because not every rank pair has a direct fabric path, so shortest-arc forwarding through intermediate ranks is the only reachable schedule; pairwise direct-send (§7.2) requires the full bisection that torus lacks. The α-β cost $(N-1)\alpha + (N-1)/N \cdot M/\mathrm{BW}$ and the partner-selection / chunk-routing / pre- and post-rotation bookkeeping port over verbatim from §7.1. What changes on a torus is the *delivered* bandwidth. A2A has no RS+AG-style decomposition to hide behind (§7 opener makes this explicit: aggregate cross-fabric traffic is $(N-1) M$ bytes regardless of schedule), so unlike AR in §3.4 — where per-dim ring kept torus BW at the star level while only paying more α hops — A2A pays a hard bisection penalty on torus that no scheduling trick can recover on the BW side, while still enjoying the latency compression from dim-decomposition on the α side. **Whether torus helps or hurts vs star therefore depends entirely on which term dominates at the target $(N, M, \alpha, \mathrm{BW})$.**
+**Relation to `01_collective_algorithms.md` §7.** The shipped algorithm is **ring relay** (§7.1) — §7.3's selection rule pegs ring relay as the natural fit on bisection-limited fabrics precisely because not every rank pair has a direct fabric path, so shortest-arc forwarding through intermediate ranks is the only reachable schedule; pairwise direct-send (§7.2) requires the full bisection that torus lacks. The shortest-arc chunk-routing and forwarding bookkeeping port over from §7.1, whose bidirectional-ring cost $\lfloor N/2 \rfloor\\,\alpha + (N/8) \cdot M/\mathrm{BW}$ is exactly the $k = 1$ case of the torus formula derived below. What a $k$-D torus changes is the path set (shortest arcs through the lattice, diameter $\sum_i \lfloor d_i/2 \rfloor$) and the *delivered* bandwidth across the bisection cut. A2A has no RS+AG-style decomposition to hide behind (§7 opener makes this explicit: aggregate cross-fabric traffic is $(N-1) M$ bytes regardless of schedule), so unlike AR in §3.4 — where per-dim ring kept torus BW at the star level while only paying more α hops — A2A pays a hard bisection penalty on torus that no scheduling trick can recover on the BW side, while its α side shrinks to the torus diameter (from shortest-arc forwarding through the lattice, not from dim-decomposition — the dim-decomposed A2A variant below is strictly worse on BW). **Whether torus helps or hurts vs star therefore depends entirely on which term dominates at the target $(N, M, \alpha, \mathrm{BW})$.**
 
 **How ring-relay A2A moves packets on a torus.** Each rank has $N$ chunks of size $M/N$, one destined for each rank (including itself). Under ring-relay, each chunk travels from source to destination along a **shortest-arc path** through the torus lattice, hop by hop. Intermediate ranks forward chunks they don't own without combining, reducing, or holding — pure point-to-point forwarding. Multiple chunks move concurrently: every link can carry an independent in-flight chunk on each direction of its full-duplex channel.
 
@@ -938,16 +938,16 @@ a→k   diameter, X then Y (direct):     a ──→ b ──→ c ──→ g �
 
 a→k   alternative via X-wraparound:    a ══─► d ──→ c ──→ g ──→ k     (4 hops)
                                         X-wrap  X     Y     Y
-      (also: a→e→f→g→k Y-first, a→b→f→j→k X-Y-X-Y, a→m→n→o→k via
+      (also: a→e→f→g→k Y-first, a→b→f→j→k X-Y-Y-X, a→m→n→o→k via
        Y-wrap + X hops, etc. — multiple equally-short paths exist.)
 ```
 
-At step 1, rank a injects 4 chunks — one onto each of its 4 outbound links (east to b, west via wraparound to d, north to e, south via wraparound to m). At step 2, rank b has received $a{\to}b$ (keep it — destination reached) and also forwards $a{\to}c$ east, while rank a injects the next-hop chunks. The schedule continues; by step $\mathrm{diam} = 4$, every chunk has arrived. All 15 other ranks run the same protocol in parallel with their own 15 chunks each, so 240 chunks are in flight concurrently across the fabric.
+At step 1, rank a injects 4 chunks — one onto each of its 4 outbound links (east to b, west via wraparound to d, north to e, south via wraparound to m). At step 2, rank b has received $a{\to}b$ (keep it — destination reached) and also forwards $a{\to}c$ east, while rank a injects the next-hop chunks. The schedule continues; no chunk travels more than $\mathrm{diam} = 4$ hops, but the phase runs longer than 4 chunk-slots — the busiest (cut) links each carry 8 chunks back-to-back, so the last chunk lands after at least 8 chunk-slots (the bottleneck occupancy derived below). All 15 other ranks run the same protocol in parallel with their own 15 chunks each, so 240 chunks are in flight concurrently across the fabric.
 
 From this mechanism the two cost terms split cleanly:
 
 - **α-term**: every chunk takes at most $\mathrm{diam} = \sum_i \lfloor d_i / 2 \rfloor$ hops. All ranks forward concurrently, so the wall-clock α-cost is set by the longest single-chunk journey — *not* the sum of all chunk hops. For the 4×4: diameter = 4, so α-term = $4\alpha$. (Contrast §3.4's ring RS, where α-cost was $(d - 1)\alpha$ per phase because chunks moved in lockstep one-hop-per-step; A2A ring-relay doesn't step-sync.)
-- **BW-term**: ring RS's step-by-step summing (§3.4) relies on uniform per-step link loading, which A2A's pipelined, asymmetric traffic doesn't provide. Appendix D develops the replacement framework — **bottleneck analysis** (`re-use count × per-use time`) — and works this case end-to-end. The structural fact for torus A2A is that cross-half traffic can only use the **bisection cut** links, so the cut's aggregate capacity upper-bounds cross-half throughput, and since every cross-cut chunk uses exactly one cut edge the total byte-count is fixed by A2A's semantics (not by scheduling).
+- **BW-term**: ring RS's step-by-step summing (§3.4) relies on uniform per-step link loading, which A2A's pipelined, asymmetric traffic doesn't provide. Appendix C develops the replacement framework — **bottleneck analysis** (`re-use count × per-use time`) — and works this case end-to-end. The structural fact for torus A2A is that cross-half traffic can only use the **bisection cut** links, so the cut's aggregate capacity upper-bounds cross-half throughput, and since every cross-cut chunk uses exactly one cut edge the total byte-count is fixed by A2A's semantics (not by scheduling).
 
 **Bisection cut for the 4×4 torus.** Drawing a vertical line between columns $x = 1$ and $x = 2$ partitions the ranks into two equal halves, severing the X-axis links that connect left to right:
 
@@ -987,17 +987,19 @@ Each chunk uses `b→c` once for $M/(16\\,\mathrm{BW})$. With 8 back-to-back re-
 
 $$t_{\mathrm{BW}} \\;=\\; 8 \cdot \frac{M}{16\\,\mathrm{BW}} \\;=\\; \frac{M}{2\\,\mathrm{BW}}$$
 
-Appendix D.3 derives the same result via the equivalent aggregate whole-cut view (4M cross-cut bytes / $8\\,\mathrm{BW}$) and contrasts both against per-chunk-per-step reasoning.
+Appendix C.3 derives the same result via the equivalent aggregate whole-cut view (4M cross-cut bytes / $8\\,\mathrm{BW}$) and contrasts both against per-chunk-per-step reasoning.
 
-**Generalizing to arbitrary torus shape.** Extending the whole-cut view to arbitrary $d_i$, the BW term scales to $d_{\max}/8 \cdot M/\mathrm{BW}$. Appendix D.3 tracks how each of the three whole-cut quantities (severed-link count, cross-cut traffic, cut throughput) scales with $N$ and $d_{\max}$, and derives this formula.
+**Generalizing to arbitrary torus shape.** Extending the whole-cut view to arbitrary $d_i$, the BW term scales to $d_{\max}/8 \cdot M/\mathrm{BW}$. Appendix C.3 tracks how each of the three whole-cut quantities (severed-link count, cross-cut traffic, cut throughput) scales with $N$ and $d_{\max}$, and derives this formula.
 
 **General cost formula.** Combining the BW term with the α-term (one full ring-relay traversal across the diameter):
 
 $$t_{\mathrm{torus,A2A}} \\;\approx\\; \mathrm{diam} \cdot \alpha \\;+\\; \frac{d_{\max}}{8} \cdot \frac{M}{\mathrm{BW}}, \qquad \mathrm{diam} = \sum_i \lfloor d_i / 2 \rfloor$$
 
-The bandwidth term scales with $d_{\max}$ — *not* $N$. On star (the pairwise-direct baseline from `01_collective_algorithms.md` §7.2) the equivalent BW term is $(N-1)/N \cdot M/\mathrm{BW} \approx M/\mathrm{BW}$; the torus-vs-star penalty is therefore $d_{\max}/8$.
+The bandwidth term scales with $d_{\max}$ — *not* $N$. On star (the pairwise-direct baseline from `01_collective_algorithms.md` §7.2) the equivalent BW term is $(N-1)/N \cdot M/\mathrm{BW} \approx M/\mathrm{BW}$; the torus-vs-star ratio is therefore $d_{\max}/8$ — $1\times$ at $d_{\max} = 8$, below 1 for smaller dims ($0.5\times$ at $4^3$), above 1 for larger ($2\times$ at $16^3$).
 
-> **Aside — "bisection bandwidth" in other literature.** Network-design texts often introduce **bisection bandwidth** as a named quantity — the total one-direction throughput across the worst-case equal-halves cut — and write the A2A BW term as $(NM/4) / \mathrm{BW_{bisect}}$. For a wraparound torus, $\mathrm{BW_{bisect}} = (2N/d_{\max}) \cdot \mathrm{BW}$, which is exactly what "severed-link count × per-link BW" evaluates to in the Appendix D.3 derivation. This note keeps the per-link BW as the only symbol and computes the cut throughput inline; readers encountering $\mathrm{BW_{bisect}}$ elsewhere should mentally map it to $(2N/d_{\max}) \cdot \mathrm{BW}$ on a torus, or $s \cdot N \cdot \mathrm{BW}$ with $s$ the oversubscription ratio on a fat-tree (`03_hierarchical_topologies.md` §1).
+Two edge cases sit inside the "$\approx$". For odd $d_{\max}$ the ring along that dim has no exact equal-halves cut and the exact per-link coefficient is $(d_{\max}^2 - 1)/(8\\,d_{\max})$ — slightly below $d_{\max}/8$ ($1/3$ vs $3/8$ at $d = 3$). And a dim with $d_i = 2$ has its wraparound link coinciding with its direct link (§1.2), so the cut across it has $N/d_i$ links rather than $2N/d_i$ and that dim contributes a coefficient of $d_i/4 = 1/2$, the same as the open-line mesh of §4.2. This binds only when $d_{\max} \leq 3$ — e.g., $2 \times 2 \times 2$: 4 cut links carry $2M$ per direction → $M/(2\\,\mathrm{BW})$, twice the $d_{\max}/8$ value. (The open-line mesh of §4.2 has the same odd-$d$ footnote: its exact coefficient is $(d_{\max}^2 - 1)/(4\\,d_{\max})$.)
+
+> **Aside — "bisection bandwidth" in other literature.** Network-design texts often introduce **bisection bandwidth** as a named quantity — the total one-direction throughput across the worst-case equal-halves cut — and write the A2A BW term as $(NM/4) / \mathrm{BW_{bisect}}$. For a wraparound torus, $\mathrm{BW_{bisect}} = (2N/d_{\max}) \cdot \mathrm{BW}$, which is exactly what "severed-link count × per-link BW" evaluates to in the Appendix C.3 derivation. This note keeps the per-link BW as the only symbol and computes the cut throughput inline; readers encountering $\mathrm{BW_{bisect}}$ elsewhere should mentally map it to $(2N/d_{\max}) \cdot \mathrm{BW}$ on a torus, or $N \cdot \mathrm{BW} / (2s)$ with $s \geq 1$ the oversubscription ratio on a fat-tree ($N/2$ endpoints' worth of one-direction throughput across the cut at $s = 1$; `03_hierarchical_topologies.md` §1).
 
 **Dim-decomposed A2A — alternative schedule.** Running $k$ successive per-dim A2As (§3.1-style decomposition, with bidirectional ring-relay A2A as the per-dim primitive — each phase runs A2A on every $d_i$-ring in parallel, using dim-$i$ wiring alone) gives the approximate cost
 
@@ -1005,12 +1007,12 @@ $$t_{\mathrm{torus,A2A,decomp}} \\;\approx\\; \mathrm{diam} \cdot \alpha \\;+\\;
 
 — per-rank holding stays $M$ across phases (data redistributes without changing total per-rank volume), so each phase costs $\lfloor d_i/2 \rfloor \alpha + d_i/8 \cdot M/\mathrm{BW}$ and the $k$ phases sum sequentially. The α-term matches flat's $\mathrm{diam} \cdot \alpha$; the BW-term is worse than flat's $d_{\max}/8$ by factor $(\sum_i d_i) / d_{\max}$ — ${\sim}k\times$ on a cubic $k$-D torus — because dim-decomposed idles $k{-}1$ dims' wiring per phase while flat uses all dims concurrently via shortest-arc routing.
 
-**Commercial shipment.** Both flat ring-relay A2A (`01_collective_algorithms.md` §7.1, shortest-arc forwarding on a linearized rank order) and the dim-decomposed schedule above ship on TPU and Trainium as the MoE expert-dispatch / expert-combine primitive. The bisection penalty is the dominant design pressure: TPU v4's optical circuit switches [TPU-V4] exist partly so that operators can *reshape* the torus slice into the most cubic layout that matches the MoE's expert count, minimizing $d_{\max}$. Trainium's Trn2 topology [TRN2-ARCH] is fixed at 2D per instance + Z-dim across instances — roughly cubic for 64-chip UltraServers — by the same reasoning. MoE workloads that outgrow a single square slice and must span multiple pods see sharp A2A-cost cliffs, which is why production MoE training/inference pipelines pin expert count to match the slice's natural dimensions whenever possible.
+**Commercial shipment.** Both flat ring-relay A2A (`01_collective_algorithms.md` §7.1's shortest-arc forwarding, run over the $k$-D lattice as derived above) and the dim-decomposed schedule above ship on TPU and Trainium as the MoE expert-dispatch / expert-combine primitive. The bisection penalty is the dominant design pressure: TPU v4's optical circuit switches [TPU-V4] exist partly so that operators can *reshape* the torus slice into the most cubic layout that matches the MoE's expert count, minimizing $d_{\max}$. Trainium's Trn2 topology [TRN2-ARCH] is fixed at 2D per instance + Z-dim across instances — roughly cubic for 64-chip UltraServers — by the same reasoning. MoE workloads that outgrow a single square slice and must span multiple pods see sharp A2A-cost cliffs, which is why production MoE training/inference pipelines pin expert count to match the slice's natural dimensions whenever possible.
 
 **Limitations (new vs §3.4 / §3.5).**
 
 1. **No decomposition escape for the BW term.** The dim-decomposed AR from §3.4 kept torus BW at star-level by routing each per-dim phase over disjoint wiring. For A2A, dim-decomposition is strictly *worse* than flat (${\sim}k\times$ on BW, as derived above) — splitting into per-dim A2As idles most of the fabric each phase, and the total cross-bisection aggregate is fixed by the collective's semantics regardless of schedule. The $d_{\max}/8$ penalty of flat A2A is architectural, not algorithmic.
-2. **Layout sensitivity is severe.** Unlike AR (§3.4 note), A2A cost scales with $d_{\max}$ rather than $\sum (d_i - 1)$. A $16 \times 8 \times 4$ layout is 2× worse than $8 \times 8 \times 8$ for the same $N = 512$; a $32 \times 4 \times 4$ layout is 4× worse. Operators tuning MoE on torus spend real effort finding the most cubic viable slice.
+2. **Layout sensitivity is severe.** Unlike AR (§3.4, where only the α term depends on shape), A2A's BW term scales with $d_{\max}$ rather than $\sum (d_i - 1)$. A $16 \times 8 \times 4$ layout is 2× worse than $8 \times 8 \times 8$ for the same $N = 512$; a $32 \times 4 \times 4$ layout is 4× worse. Operators tuning MoE on torus spend real effort finding the most cubic viable slice.
 
 **What mitigates the bisection penalty.** Two mitigations actually move the A2A cost on torus:
 
@@ -1025,7 +1027,7 @@ Mesh is the direct-wiring complement to star and the wraparound-free complement 
 
 ### 4.1 Full mesh
 
-Full mesh replaces the central switch with $N(N-1)/2$ direct edges, one per rank pair. Every collective primitive runs at its star cost with one adjustment: the per-hop α drops the switch cut-through term and becomes pure endpoint-to-endpoint link latency. On chiplet-scale copper this is ~100–300 ns per hop (vs NVSwitch's ~500 ns cut-through); at board-scale NVLink it is comparable to star's α because the PHY cost dominates. **No switch ASIC means no in-network reduction path** — SHARP / NVLS are structurally unavailable — and **no switch multicast**, so AG and BC cannot benefit from switch-resident replication.
+Full mesh replaces the central switch with $N(N-1)/2$ direct edges, one per rank pair. Every collective primitive runs at its star cost with one adjustment: the per-hop α drops the switch cut-through term and becomes pure endpoint-to-endpoint link latency. On chiplet-scale copper this is ~100–300 ns per hop (vs star's ~500 ns total α, of which ~100 ns is the NVSwitch cut-through); at board-scale NVLink it is comparable to star's α because the PHY cost dominates. **No switch ASIC means no in-network reduction path** — SHARP / NVLS are structurally unavailable — and **no switch multicast**, so AG and BC cannot benefit from switch-resident replication.
 
 **Algorithm coverage.** Full mesh has any-to-any direct links between every rank pair, so every logical edge in any schedule from `01_collective_algorithms.md` lands on exactly one physical link. All software algorithms, such as ring, binomial tree, DBT, rec-doubling / rec-halving, Rabenseifner, pairwise direct-send, Bruck, and PAT, run at their pure α-β costs, with the single substitution $\alpha \to \alpha_{\mathrm{link}}$. The lone exception is the INC paths (SHARP / NVLS / switch multicast): full mesh has no switch ASIC, so the in-network formulas from `01_collective_algorithms.md` §3.3 / §4.3 / §5.3 do not apply.
 
@@ -1039,12 +1041,12 @@ $$t_{\mathrm{mesh,\\,ring\\,AR}} = 2(N-1)\\,\alpha_{\mathrm{link}} + 2\\,\frac{N
 
 Same formula; only α changes (switch cut-through term drops, leaving pure PHY-to-PHY link latency). Every other algorithm substitutes the same way — no topology correction beyond this α calibration.
 
-In the pure α-β model, A2A gains essentially nothing over star: NVSwitch-class star already hits the per-port BW bound via pairwise direct-send, and removing the switch at most recovers the cut-through time. Note the $(N-1)/N$ coefficient is serial over each rank's single outbound α-β port-slot per step — the $N-1$ dedicated wires don't dissolve the per-rank port budget in the pure α-β model, so the formula has the same serialized shape as star's. The structural advantage of full mesh is not cost-theoretic; it is that **dedicated per-pair links carry no inter-pair contention** — which matters under concurrent collective groups (scored in `05_contention_and_congestion.md`).
+In the pure α-β model, A2A gains essentially nothing over star: NVSwitch-class star already hits the per-port BW bound via pairwise direct-send, and removing the switch at most recovers the cut-through time. Note the $(N-1)/N$ coefficient is serial over each rank's single outbound α-β port-slot per step — $\mathrm{BW}$ here is the per-rank aggregate port budget, exactly as on star, and the $N-1$ dedicated wires do not multiply it: each wire can carry the full $\mathrm{BW}$, but a rank drives only $\mathrm{BW}$ in total, time-shared across its wires, so the formula has the same serialized shape as star's. (The same convention sets pipelined DBT's BW term at the single-port $2\\,M/\mathrm{BW}$ on full mesh, as on star — §2.3.) The structural advantage of full mesh is not cost-theoretic; it is that **dedicated per-pair links carry no inter-pair contention** — which matters under concurrent collective groups (scored in `05_contention_and_congestion.md`).
 
 **Commercial shipment — where full mesh actually appears.** Three regimes dominate:
 
 1. **Chiplet interposer (UCIe, EMIB, HBM base-die):** small $N$ (2–8 chiplets), direct PHY-to-PHY links on silicon / organic substrate; no switch in the package.
-2. **Legacy pre-NVSwitch NVLink (DGX-1 / DGX-2 hybrid cube-mesh):** 8-way or 16-way NVLink-1/2 used hybrid cube-mesh wiring where each GPU linked directly to a subset of peers. NVSwitch (NVLink-3+) replaced this because full mesh's $O(N^2)$ wire count stops scaling past ~16 endpoints.
+2. **Legacy pre-NVSwitch NVLink (DGX-1 hybrid cube-mesh):** the 8-GPU DGX-1 on NVLink-1/2 used hybrid cube-mesh wiring where each GPU linked directly to a subset of peers — a partial mesh rather than a true full mesh. NVSwitch (introduced with the 16-GPU DGX-2 on NVLink 2) replaced direct wiring because full mesh's $O(N^2)$ wire count stops scaling past ~16 endpoints.
 3. **PCIe peer-to-peer inside a root complex:** GPUs DMA to each other over per-pair PCIe lanes; an informal full-mesh analog, though traffic in practice still traverses a root-complex switch.
 
 **Limitations.**
@@ -1060,7 +1062,7 @@ A $k$-D mesh is a torus **without** the wraparound edges. The torus neighbor for
 
 $$t_{\mathrm{mesh,AR}} = 2\sum_i (d_i - 1)\\,\alpha + 2\\,\frac{N-1}{N}\cdot\frac{M}{\mathrm{BW}}, \qquad t_{\mathrm{mesh,BC}} = t_{\mathrm{mesh,Reduce}} = \sum_i (d_i - 1)\\,\alpha + \frac{M}{\mathrm{BW}}$$
 
-(AG / RS are half of AR.) Like torus, mesh is link-only — no switch ASIC, so the INC paths from `01` §3.3 / §4.3 / §5.3 are unavailable.
+(AG / RS are half of AR.) Like torus, mesh is link-only — no switch ASIC, so the INC paths from `01_collective_algorithms.md` §3.3 / §4.3 / §5.3 are unavailable.
 
 **What does *not* transfer.** Two effects distinguish mesh from torus:
 
@@ -1074,7 +1076,7 @@ $$t_{\mathrm{mesh,AR}} = 2\sum_i (d_i - 1)\\,\alpha + 2\\,\frac{N-1}{N}\cdot\fra
 
 **Scheduling caveat on realized BW.** The α-β formulas assume bidirectional pipelining that keeps every link fully utilized — matching the ring case's uniform per-link load. A naïve unidirectional schedule on an open line can realize up to 2× worse BW because middle links bottleneck while endpoint links idle; well-tuned implementations hit the formula, but worst-case-bounded cost models should apply a factor up to 2 on the BW term when scheduling discipline is not guaranteed.
 
-**Commercial shipment.** $k$-D mesh appears primarily as an implementation detail rather than a top-level AI-fabric choice: Intel's Xeon Phi KNL used a 2D mesh-on-die for its CHA tile interconnect; some pre-production Trainium / TPU prototypes used meshes before upgrading to torus; chiplet-scale HBM base-die interconnects often use small 2×2 or 4×4 meshes because on-silicon wraparound wiring is expensive and dim sizes are tiny. In production large-scale AI fabrics, torus dominates — the wraparound cost is small (~$N$ extra links) and the 2× bisection payoff is large.
+**Commercial shipment.** $k$-D mesh appears primarily as an implementation detail rather than a top-level AI-fabric choice: Intel's Xeon Phi KNL used a 2D mesh-on-die for its CHA tile interconnect; some pre-production Trainium / TPU prototypes used meshes before upgrading to torus; chiplet-scale HBM base-die interconnects often use small 2×2 or 4×4 meshes because on-silicon wraparound wiring is expensive and dim sizes are tiny. In production large-scale AI fabrics, torus dominates — the wraparound cost is small ($\sum_i N/d_i$ extra links, i.e. $kN/d$ on a cubic shape: 192 = $0.375\\,N$ at $8 \times 8 \times 8$) and the 2× bisection payoff is large.
 
 **Limitations.**
 
@@ -1087,13 +1089,13 @@ $$t_{\mathrm{mesh,AR}} = 2\sum_i (d_i - 1)\\,\alpha + 2\\,\frac{N-1}{N}\cdot\fra
 
 ### 5.1 Cost summary by topology
 
-Cost table for each (topology, primitive) pair at its dominant shipped algorithm under the ideal α-β model (no contention, uniform per-link BW, uniform per-hop $\alpha$; torus / k-D mesh rows assume contiguous dim-aligned group placement). All BW terms assume asymptotic pipelining (the $P \to P^*$ limit from `01_collective_algorithms.md` Appendix C).
+Cost table for each (topology, primitive) pair at its dominant shipped algorithm under the ideal α-β model (no contention, uniform per-link BW, uniform per-hop $\alpha$; torus / k-D mesh rows assume contiguous dim-aligned group placement). All BW terms assume asymptotic pipelining (the $P \to P^{\ast}$ limit from `01_collective_algorithms.md` Appendix C). On star and full mesh $\mathrm{BW}$ is the per-rank port bandwidth (one direction), so the DBT rows carry the single-port BW term $2\\,M/\mathrm{BW}$ — each rank moves $2M$ per direction through its port (`01_collective_algorithms.md` §5.2); the $M/\mathrm{BW}$ form applies only when every tree edge has its own full-BW link (up to 4 per rank). The pipelined BC / Reduce rows are the single-port ideal rather than a library default: the two-tree [SST09] schedule, the tree shape that keeps each rank's port at $M$ bytes per direction (`01_collective_algorithms.md` §3.2).
 
 | Topology | Primitive | Algorithm | Latency term | BW term | Shipped by |
 |---|---|---|---|---|---|
-| **Star** (§2) | BC | Binomial tree (pipelined) | $\lceil \log_2 N \rceil\\,\alpha$ | $M/\mathrm{BW}$ | NCCL (default BC path) |
-|  | Reduce | Binomial tree (pipelined) | $\lceil \log_2 N \rceil\\,\alpha$ | $M/\mathrm{BW}$ | NCCL (default Reduce path) |
-|  | AR | Double binary tree (pipelined) | $2\\,\lceil \log_2 N \rceil\\,\alpha$ | $M/\mathrm{BW}$ | NCCL (small–mid $M$) |
+| **Star** (§2) | BC | Two-tree [SST09] (pipelined) | $\lceil \log_2 N \rceil\\,\alpha$ | $M/\mathrm{BW}$ | MPI libraries ship binomial / segmented trees; NCCL runs ring BC ($(N{-}1)\\,\alpha$, same BW term) |
+|  | Reduce | Two-tree [SST09] (pipelined) | $\lceil \log_2 N \rceil\\,\alpha$ | $M/\mathrm{BW}$ | MPI libraries ship binomial / segmented trees; NCCL runs ring Reduce ($(N{-}1)\\,\alpha$, same BW term) |
+|  | AR | Double binary tree (pipelined) | $2\\,\lceil \log_2 N \rceil\\,\alpha$ | $2\\,M/\mathrm{BW}$ | NCCL (small–mid $M$) |
 |  | AR | Ring | $2(N{-}1)\\,\alpha$ | $2(N{-}1)/N \cdot M/\mathrm{BW}$ | NCCL (bulk $M$) |
 |  | AG / RS | Ring | $(N{-}1)\\,\alpha$ | $(N{-}1)/N \cdot M/\mathrm{BW}$ | NCCL |
 |  | A2A | Pairwise direct-send | $(N{-}1)\\,\alpha$ | $(N{-}1)/N \cdot M/\mathrm{BW}$ | NCCL |
@@ -1102,9 +1104,9 @@ Cost table for each (topology, primitive) pair at its dominant shipped algorithm
 |  | AR | Dim-decomp ring | $2 \sum_i (d_i{-}1)\\,\alpha$ | $2(N{-}1)/N \cdot M/\mathrm{BW}$ | TPU (XLA / JAX), Trainium (NeuronX CCL) |
 |  | AG / RS | Dim-decomp ring | $\sum_i (d_i{-}1)\\,\alpha$ | $(N{-}1)/N \cdot M/\mathrm{BW}$ | TPU, Trainium |
 |  | A2A | Ring relay (bisection-bound) | $\mathrm{diam}\cdot\alpha$, $\mathrm{diam} = \sum_i \lfloor d_i/2 \rfloor$ | $(d_{\max}/8) \cdot M/\mathrm{BW}$ | TPU, Trainium |
-| **Full mesh** (§4.1) | BC | Binomial tree (pipelined) | $\lceil \log_2 N \rceil\\,\alpha_{\mathrm{link}}$ | $M/\mathrm{BW}$ | Chiplet interposer (UCIe), DGX-1/2 hybrid cube-mesh (legacy), PCIe P2P |
-|  | Reduce | Binomial tree (pipelined) | $\lceil \log_2 N \rceil\\,\alpha_{\mathrm{link}}$ | $M/\mathrm{BW}$ | same |
-|  | AR | Double binary tree (pipelined) | $2\\,\lceil \log_2 N \rceil\\,\alpha_{\mathrm{link}}$ | $M/\mathrm{BW}$ | same |
+| **Full mesh** (§4.1) | BC | Two-tree [SST09] (pipelined) | $\lceil \log_2 N \rceil\\,\alpha_{\mathrm{link}}$ | $M/\mathrm{BW}$ | Chiplet interposer (UCIe), DGX-1 hybrid cube-mesh (legacy, partial mesh), PCIe P2P |
+|  | Reduce | Two-tree [SST09] (pipelined) | $\lceil \log_2 N \rceil\\,\alpha_{\mathrm{link}}$ | $M/\mathrm{BW}$ | same |
+|  | AR | Double binary tree (pipelined) | $2\\,\lceil \log_2 N \rceil\\,\alpha_{\mathrm{link}}$ | $2\\,M/\mathrm{BW}$ | same |
 |  | AR | Ring | $2(N{-}1)\\,\alpha_{\mathrm{link}}$ | $2(N{-}1)/N \cdot M/\mathrm{BW}$ | same |
 |  | AG / RS | Ring | $(N{-}1)\\,\alpha_{\mathrm{link}}$ | $(N{-}1)/N \cdot M/\mathrm{BW}$ | same |
 |  | A2A | Pairwise direct-send | $(N{-}1)\\,\alpha_{\mathrm{link}}$ | $(N{-}1)/N \cdot M/\mathrm{BW}$ | same |
@@ -1116,18 +1118,18 @@ Cost table for each (topology, primitive) pair at its dominant shipped algorithm
 
 Six observations that the rest of this series builds on:
 
-1. **Torus preserves BW-optimality for AR / AG / RS but pays in α.** The torus ring entries keep the same $(N{-}1)/N$ (or $2(N{-}1)/N$) BW coefficient as their star counterparts — dim-decomposition routes each phase over disjoint per-dim copper, so no BW is wasted. The torus-vs-star gap is entirely in the α term: $\sum (d_i{-}1)$ vs star's $\log_2 N$ (DBT) or $N{-}1$ (ring). Production uses ring on both sides because the α gap is small once $M$ is large.
-2. **BC and Reduce hit the $M/\mathrm{BW}$ BW ceiling under pipelining, on every topology.** The entire topology-vs-topology gap for BC / Reduce lives in the α term: $\log_2 N$ (star tree), $\sum_i \lfloor d_i/2 \rfloor$ (bidirectional torus), $\sum_i (d_i{-}1)$ (open-line k-D mesh or unidirectional torus). The wraparound halves torus's α relative to same-shape k-D mesh; star's log-depth α beats both at any $N$ the switch can accommodate.
-3. **Torus pays a hard BW penalty on A2A under asymmetric shapes.** The $d_{\max}/8 \cdot M/\mathrm{BW}$ BW term has no algorithmic escape — it's set by the bisection cut, not by the schedule. At cubic $N^{1/k}$ per dim the penalty is $1\times$ (torus matches star's BW term exactly), but it scales linearly with $d_{\max}$ and reaches $32\times$ at $256 \times 2 \times 2$ — which is why torus pods aggressively reshape slices toward cubic layouts for MoE workloads.
+1. **Torus preserves BW-optimality for AR / AG / RS but pays in α.** The torus ring entries keep the same $(N{-}1)/N$ (or $2(N{-}1)/N$) BW coefficient as their star counterparts — dim-decomposition routes each phase over disjoint per-dim copper, so no BW is wasted. The torus-vs-star gap is entirely in the α term: $\sum (d_i{-}1)$ vs star's $\log_2 N$ (DBT) or $N{-}1$ (ring), each per RS / AG half. (Star DBT's own BW coefficient is the single-port 2, marginally above the ring entries' $2(N{-}1)/N$ — DBT's edge is on α only.) Production uses ring on both sides because the α gap is small once $M$ is large.
+2. **BC and Reduce hit the $M/\mathrm{BW}$ BW ceiling under pipelining, on every topology.** The entire topology-vs-topology gap for BC / Reduce lives in the α term: $\log_2 N$ (star tree), $\sum_i \lfloor d_i/2 \rfloor$ (bidirectional torus), $\sum_i (d_i{-}1)$ (open-line k-D mesh or unidirectional torus). The wraparound halves torus's α relative to same-shape k-D mesh; star's log-depth tree α beats both at production dim sizes ($d_i \geq 8$: 9 vs 12 at $8 \times 8 \times 8$, 12 vs 24 at $16^3$), while small tori tie or win ($4 \times 4 \times 4$: 6 vs 6; $3 \times 3$: 4 vs 2). The star figure is the tree's — NCCL's ring-only BC / Reduce pays $(N{-}1)\alpha$ (§2.1).
+3. **Torus pays a hard BW penalty on A2A under asymmetric shapes.** The $d_{\max}/8 \cdot M/\mathrm{BW}$ BW term has no algorithmic escape — it's set by the bisection cut, not by the schedule. At $8 \times 8 \times 8$ the coefficient $d_{\max}/8$ is $1\times$ (torus matches star's $\approx M/\mathrm{BW}$ BW term) — a property of $d_{\max} = 8$, not of cubic shapes in general ($0.5\times$ at $4^3$, $2\times$ at $16^3$) — and it scales linearly with $d_{\max}$, reaching $16\times$ at $128 \times 2 \times 2$ for the same $N = 512$ — which is why torus pods aggressively reshape slices toward cubic layouts for MoE workloads.
 4. **k-D mesh is torus with a 2× A2A penalty.** For AR / AG / RS / BC / Reduce, k-D mesh's open-line substitutes for torus's ring with no change to the unidirectional α form ($\sum (d_i{-}1)\alpha$ either way) and no change to BW ($(N{-}1)/N \cdot M/\mathrm{BW}$ telescoping still holds on bucket brigade). For A2A, missing wraparound edges halve the bisection cut, so the BW term is $d_{\max}/4$ vs torus's $d_{\max}/8$ — exactly $2\times$ worse.
-5. **Tree-flavored algorithms ship on star but not on torus / mesh.** DBT is NCCL's default on switched fabrics and is selected by the tuner for small-$M$ AR; the structurally analogous dim-decomposed Rabenseifner variant on torus (Appendix A) is absent from both TPU and Trainium runtime stacks because the 1.5–4× α compression at production dim sizes $d_i \in \\{4, 8, 16\\}$ rarely beats the simpler ring kernel in practice. This is a fabric-economics decision, not a correctness one.
-6. **Star has an additional α-compression escape hatch via in-network collectives — direct-wired topologies (torus, full mesh, k-D mesh) do not.** Within a switched fabric, the reduction operation can move into the switch ASIC itself: switch-resident ALUs reduce flits on the fly and multicast the result back, collapsing $n_\alpha$ from $\log_2 N$ (DBT) all the way to $2$, independent of $N$. NVLS (NVSwitch), Quantum SHARP (InfiniBand fat-tree / Clos), and Tomahawk Ultra INC (Ethernet) all exploit this. Direct-wired topologies have no analogous path — the $N$-dependent $\alpha$ term comes from neighbor-router hops, which cannot be collapsed by moving the reduce into a central switch that does not exist. See `04_in_network_collectives.md` for the full mechanism and cost model.
+5. **Tree-flavored algorithms ship on star but not on torus / mesh.** DBT is NCCL's default on switched fabrics and is selected by the tuner for small-$M$ AR; the structurally analogous dim-decomposed Rabenseifner variant on torus (Appendix A) is not the default on either the TPU or the Trainium runtime stack (NeuronX CCL lists an RDH variant alongside ring [NEURON-CC]) because the 1.5–4× algorithmic-step α compression at production dim sizes $d_i \in \\{4, 8, 16\\}$ rarely beats the simpler ring kernel in practice — and under per-physical-hop accounting on ring wiring it disappears altogether (Appendix A caveat). This is a fabric-economics decision, not a correctness one.
+6. **Star has an additional α-compression escape hatch via in-network collectives — direct-wired topologies (torus, full mesh, k-D mesh) do not.** Within a switched fabric, the reduction operation can move into the switch ASIC itself: switch-resident ALUs reduce flits on the fly and multicast the result back, collapsing $n_\alpha$ from $2\log_2 N$ (DBT) all the way to $2$, independent of $N$. NVLS (NVSwitch), Quantum SHARP (InfiniBand fat-tree / Clos), and Tomahawk Ultra INC (Ethernet) all exploit this. Direct-wired topologies have no analogous path — the $N$-dependent $\alpha$ term comes from neighbor-router hops, which cannot be collapsed by moving the reduce into a central switch that does not exist. See `04_in_network_collectives.md` for the full mechanism and cost model.
 
 ### 5.2 Limitations
 
 Every cost formula above assumes the collective runs **alone** with perfect link-level scheduling. Real deployments break this in four ways; `05_contention_and_congestion.md` covers each with coefficient models.
 
-1. **Concurrent collective groups.** DP replicas simultaneously issue TP all-reduces. On a star, non-overlapping port subsets handle them trivially. On torus, if all replicas share a common dim, they contend for the same physical links. Best-case torus assumes this doesn't happen.
+1. **Concurrent collective groups.** DP replicas simultaneously issue TP all-reduces. On a star, non-overlapping port subsets handle them trivially. On torus, groups that occupy *different* dim-lines are link-disjoint even when they run along the same dim (an $8 \times 8 \times 8$ torus has 64 disjoint X-rings), so sharing a dim is not by itself a conflict. Contention arises when groups overlap on the *same* dim-lines — e.g., two groups smaller than $d_i$ placed on one line (neither owns the full ring, so each one's ring-closure traffic transits the other's links), or off-prefix placements (item 2) whose multi-hop paths cross other groups' lines. Best-case torus assumes this doesn't happen.
 2. **Off-prefix group layouts.** Torus dim-decomp only hits $2 \sum(d_i - 1)$ hops when the group ranks are contiguous along dim prefixes. A scatter-pattern allocator (typical in shared clusters) produces groups whose ranks are spread arbitrarily — the physical hop count can be 2–4× the ideal, and the formula falls back to flat-ring bound.
 3. **Skewed A2A traffic.** Real MoE routing shows 3–10× skew between hot and cold experts. The uniform-bisection bound underestimates tail latency. Star shrugs this off (every port has the same BW); torus pays — hot-expert destinations concentrated along one dim saturate that dim's bisection well before the uniform bound predicts.
 4. **Mixed traffic classes.** Gradient AR, activation AG, optimizer RS, KV cache streaming, and control messages compete for the same fabric — the specifics depend on workload (training vs inference, dense vs MoE), but the structural point is the same: wormhole / cut-through routing keeps the BW per message stable at peak utilization but adds queuing delay at high saturation.
@@ -1138,15 +1140,17 @@ Also worth noting: everything above assumes the software picks the right algorit
 
 ## Appendix A: Dim-decomposed Rabenseifner halving-doubling
 
-This appendix preserves the full derivation of the tree-flavored torus AR variant for reference. **It is not shipping** on any production torus stack — neither XLA / JAX on TPU nor NeuronX CCL on Trainium chooses it — and the §3.4 main-text discussion selects dim-decomposed ring instead. The material here exists so the comparison remains complete: it sharpens *why* ring-per-dim wins on torus by showing exactly what the Rabenseifner-per-dim alternative gives up.
+This appendix preserves the full derivation of the tree-flavored torus AR variant for reference. **It is not the production default** on torus — XLA / JAX on TPU emits ring-per-dim, and although NeuronX CCL lists an RDH (recursive doubling-halving) all-reduce variant among its kernels [NEURON-CC], the §3.4 main-text discussion selects dim-decomposed ring. The material here exists so the comparison remains complete: it sharpens *why* ring-per-dim wins on torus by showing exactly what the Rabenseifner-per-dim alternative gives up.
+
+> **Accounting caveat — read before using any number in this appendix.** The $\lceil \log_2 d_i \rceil$ α counts and the unchanged BW coefficient below are **algorithmic-step** counts. They assume (i) each halving-doubling exchange costs one α regardless of how many physical links separate the partners (endpoint-software-dominated α with negligible per-hop forwarding latency), and (ii) multi-hop exchanges do not share links. Neither holds on per-dim ring wiring under this note's own per-physical-hop accounting (§3.2 aside): the partner distances $d/2 + d/4 + \cdots + 1$ sum to $d - 1$ physical hops per dim — **no α gain over ring** — and the long exchanges overlap on the ring's links. At $d = 8$ both multi-hop steps overlap: the distance-4 step is 8 messages × 4 hops = 32 link-uses on 16 directed links, and in the distance-2 step the exchanges $0 \leftrightarrow 2$ and $1 \leftrightarrow 3$ both need link $1 \to 2$. In each of those steps the busiest link therefore carries two payloads and the step takes twice its any-to-any time (busiest-link loads 1, 2, 2 for distances 1, 2, 4, under the best routing). What that costs depends on which step carries the large payload. Halving near-first (the `01_collective_algorithms.md` Appendix B.2 order: $M'/2$ to the distance-1 partner, $M'/8$ to the distance-4 partner) gives a per-dim RS BW coefficient of $1/2 + 2 \cdot 1/4 + 2 \cdot 1/8 = 5/4$; halving far-first (the order of the worked example below) gives $2 \cdot 1/2 + 2 \cdot 1/4 + 1/8 = 13/8$; ring's is $7/8$. (At $d = 4$ the distance-2 exchanges can be routed without overlap and the coefficient stays $3/4$; at $d = 16$ the busiest-link loads are 1, 2, 4, 4 and the two orders give $7/4$ and $53/16$ versus ring's $15/16$.) For $8 \times 8 \times 8$ AR even the better order has a BW term of $2 \cdot \tfrac{5}{4} \cdot (1 + \tfrac{1}{8} + \tfrac{1}{64}) \approx 2.85\\,M/\mathrm{BW}$ — about 50.7 μs at the $M = 16\\,\mathrm{MB}$, $\mathrm{BW} = 900\\,\mathrm{GB/s}$ anchor, versus ring-per-dim's 35.5 μs (far-first: $\approx 3.71\\,M/\mathrm{BW}$, 65.9 μs). **On a physical torus the variant is therefore no faster than ring-per-dim; every figure below is the any-to-any-substrate best case.**
 
 **Relation to §3.1.** The compositional framework is identical: run $k$ serial dim-phases for RS, then $k$ more for AG, with $(N/d_i)$ concurrent rings per phase on disjoint copper. The only swap is the inner per-dim primitive — replace each dim's $d_i$-rank ring RS (or AG) with the $d_i$-rank recursive halving-doubling schedule from `01_collective_algorithms.md` Appendix B.2 (AR) / Appendix B.4 (standalone RS or AG) (power-of-2 $d_i$ required; for non-power-of-2 $d_i$ the schedule reduces to ring or to a hybrid form). The dim-decomposition argument itself — associativity of reduction, chunk-size telescoping across phases, concurrent ring execution on disjoint copper — is unchanged.
 
-**Why swap the inner primitive?** Recursive halving-doubling takes $\lceil \log_2 d_i \rceil$ α hops per dim-phase instead of $(d_i - 1)$ for ring, while keeping the same $(d_i - 1)/d_i \cdot \mathrm{chunk}/\mathrm{BW}$ bandwidth term per phase (because each rank still sends $(d_i - 1)/d_i$ of its current chunk, just in $\log_2 d_i$ bursts of doubling size rather than $d_i - 1$ bursts of fixed size). The per-dim α compression is modest — $d_i = 4 \to 2$ hops vs 3 for ring (1.5×); $d_i = 8 \to 3$ vs 7 (2.3×); $d_i = 16 \to 4$ vs 15 (3.75×) — but compounds across dims.
+**Why swap the inner primitive?** In algorithmic-step terms (see the caveat above), recursive halving-doubling takes $\lceil \log_2 d_i \rceil$ α hops per dim-phase instead of $(d_i - 1)$ for ring, while keeping the same $(d_i - 1)/d_i \cdot \mathrm{chunk}/\mathrm{BW}$ bandwidth term per phase (because each rank still sends $(d_i - 1)/d_i$ of its current chunk, just in $\log_2 d_i$ bursts of doubling size rather than $d_i - 1$ bursts of fixed size). The per-dim α compression is modest — $d_i = 4 \to 2$ hops vs 3 for ring (1.5×); $d_i = 8 \to 3$ vs 7 (2.3×); $d_i = 16 \to 4$ vs 15 (3.75×) — but compounds across dims.
 
-**Worked example — 4×4 torus with Rabenseifner per dim.** Same 2D grid as §3.4, but each row/column now runs halving-doubling instead of ring. On $d_x = 4$ the X-phase RS runs $\lceil \log_2 4 \rceil = 2$ halving-doubling steps per row (step 1: exchange halves with partner 2 away; step 2: exchange quarters with partner 1 away), giving $n_\alpha = 2$ per phase versus ring's $n_\alpha = 3$. The bandwidth telescoping matches ring's exactly — after the X-phase RS each rank holds $M/4$ bytes, after Y-phase RS $M/16$ — because halving-doubling's BW coefficient $(D-1)/D$ is identical to ring's for the same chunk math. Total for 2D AR: $n_\alpha = 2 \cdot 2 \cdot 2 = 8$ versus ring's $2 \cdot 2 \cdot 3 = 12$, with identical BW term.
+**Worked example — 4×4 torus with Rabenseifner per dim.** Same 4×4 grid as §3.6, but each row/column now runs halving-doubling instead of ring. On $d_x = 4$ the X-phase RS runs $\lceil \log_2 4 \rceil = 2$ halving-doubling steps per row (step 1: exchange halves with partner 2 away; step 2: exchange quarters with partner 1 away), giving $n_\alpha = 2$ per phase versus ring's $n_\alpha = 3$. The bandwidth telescoping matches ring's exactly — after the X-phase RS each rank holds $M/4$ bytes, after Y-phase RS $M/16$ — because halving-doubling's BW coefficient $(d_i-1)/d_i$ is identical to ring's for the same chunk math. Total for 2D AR: $n_\alpha = 2 \cdot 2 \cdot 2 = 8$ algorithmic steps versus ring's $2 \cdot 2 \cdot 3 = 12$, with identical BW term (at $d_i = 4$ the distance-2 exchanges fit on the ring's links without overlap, so the BW claim survives the caveat; the step-1 exchange still spans 2 physical hops, so per-physical-hop α is $2 + 1 = 3$ per phase — the same as ring).
 
-**Cost formula.** Summing $\lceil \log_2 d_i \rceil$ α hops per dim per half (RS or AG) and applying the same BW telescoping as §3.4:
+**Cost formula (algorithmic-step accounting; any-to-any best case).** Summing $\lceil \log_2 d_i \rceil$ α hops per dim per half (RS or AG) and applying the same BW telescoping as §3.4:
 
 $$t_{\mathrm{torus,AR,Rab}} \\;=\\; 2 \sum_i \lceil \log_2 d_i \rceil\\,\alpha + 2 \cdot \frac{N-1}{N} \cdot \frac{M}{\mathrm{BW}}, \quad N = \prod_i d_i$$
 
@@ -1154,18 +1158,18 @@ For the AG / RS halves:
 
 $$t_{\mathrm{torus,AG\\,or\\,RS,Rab}} = \sum_i \lceil \log_2 d_i \rceil\\,\alpha + \frac{N-1}{N} \cdot \frac{M}{\mathrm{BW}}$$
 
-**Latency compression at $N = 512$.** For the $8 \times 8 \times 8$ layout: $\sum \lceil \log_2 d_i \rceil = 9$ hops, so $n_\alpha = 18$ for AR versus dim-decomp ring's 42 (2.3× compression) and flat ring's 1022 (57× compression). The marginal step from ring-per-dim (42) to Rabenseifner-per-dim (18) saves 24 α hops; at $\alpha = 0.5\\,\mu$s that is 12 μs — meaningful at very small $M$, negligible once the BW term crosses a few tens of μs.
+**Latency compression at $N = 512$ (algorithmic steps).** For the $8 \times 8 \times 8$ layout: $\sum \lceil \log_2 d_i \rceil = 9$ steps, so $n_\alpha = 18$ for AR versus dim-decomp ring's 42 (2.3× compression) and flat ring's 1022 (57× compression). The marginal step from ring-per-dim (42) to Rabenseifner-per-dim (18) saves 24 α steps; at $\alpha = 0.5\\,\mu$s that is 12 μs — meaningful at very small $M$, negligible once the BW term crosses a few tens of μs. Under per-physical-hop accounting the count returns to 42 and the saving is zero (caveat above).
 
-**Why it does not ship on production torus fabrics.** Four constraints together:
+**Why it is not the default on production torus fabrics.** Beyond the physical-hop caveat above, four constraints together:
 
-1. **Power-of-2 dim sizes required.** The halving-doubling schedule assumes $d_i$ is a power of 2 along each active dim. TPU v4 / v5p pods configured via OCS can choose $d_i \in \\{2, 4, 8, 16\\}$ per dim — compatible — but Trainium's fixed 2D-plus-Z 64-chip shape bakes in $d_i = \\{4, 4, 4\\}$. Any dim mismatch forces fallback to ring-per-dim for that dim, eroding the compression.
-2. **Small per-dim $d_i$ limits the α savings.** At $d_i = 4$ the α compression is 1.5× (3 hops → 2); at $d_i = 8$ it is 2.3×. The $\log_2 d_i$ advantage only widens for large $d_i$, but production dim sizes top out around 16 because larger dims degrade A2A (§3.6 bisection-penalty scales as $d_{\max}$).
+1. **Power-of-2 dim sizes required.** The halving-doubling schedule assumes $d_i$ is a power of 2 along each active dim. TPU v4 torus slices are assembled by OCS from $4 \times 4 \times 4$ cubes, so $d_i \in \\{4, 8, 12, 16\\}$ per dim — powers of 2 except 12 — and Trainium's fixed 2D-plus-Z 64-chip shape bakes in $d_i = \\{4, 4, 4\\}$ — both compatible (TPU except at $d_i = 12$), though Trainium only at the smallest useful dim size (point 2). Any non-power-of-2 dim forces fallback to ring-per-dim for that dim, eroding the compression.
+2. **Small per-dim $d_i$ limits the α savings.** At $d_i = 4$ the α compression is 1.5× (3 hops → 2); at $d_i = 8$ it is 2.3×. The $\log_2 d_i$ advantage only widens for large $d_i$, but production dim sizes are kept small — around 16 on TPU v4's $16^3$ pod — because larger dims degrade A2A (§3.6 bisection-penalty scales as $d_{\max}$).
 3. **Kernel complexity dominates the α savings at bulk $M$.** Each halving-doubling step has butterfly-pattern neighbor exchange with doubling chunk size; mapping this onto the torus's fixed $2k$-neighbor wiring requires per-step chunk recomputation on the chip's reduce-engine. The ring kernel uses a single static schedule. For the $M \geq$ few hundred KB bulk regime where production workloads live, the BW term dominates and the extra hops the Rabenseifner variant saves do not pay for the kernel-complexity overhead.
-4. **α term is not on the critical path once BW dominates.** At $N = 512$, $\alpha = 0.5\\,\mu$s, $\mathrm{BW} = 900\\,\mathrm{GB/s}$, and $M = 16\\,\mathrm{MB}$, the ring-per-dim AR cost is 21 μs α + 35.5 μs BW = 57 μs total; Rabenseifner-per-dim trims this to 9 μs α + 35.5 μs BW = 45 μs — a 21% saving on paper that is routinely erased by the kernel-complexity overhead in point 3.
+4. **α term is not on the critical path once BW dominates.** At $N = 512$, $\alpha = 0.5\\,\mu$s, $\mathrm{BW} = 900\\,\mathrm{GB/s}$, and $M = 16\\,\mathrm{MB}$, the ring-per-dim AR cost is 21 μs α + 35.5 μs BW = 57 μs total; Rabenseifner-per-dim trims this to 9 μs α + 35.5 μs BW = 45 μs in the any-to-any best case — a 21% saving on paper that is routinely erased by the kernel-complexity overhead in point 3, and that inverts on real ring wiring: with per-physical-hop α (21 μs) and the shared-link BW term from the caveat (50.7 μs with the better halving order) the variant costs about 72 μs, slower than ring-per-dim's 57 μs.
 
-This is a fabric-economics and software-simplicity decision, not a correctness one: dim-decomposed Rabenseifner-per-dim produces the same numerical result (up to floating-point ordering) as dim-decomposed ring, and either could be implemented on the same hardware. Production stacks ship the simpler ring-per-dim kernel because its α disadvantage is small at production dim sizes and its BW coefficient is exactly the same.
+This is a fabric-economics and software-simplicity decision, not a correctness one: dim-decomposed Rabenseifner-per-dim produces the same numerical result (up to floating-point ordering) as dim-decomposed ring, and either could be implemented on the same hardware. Production stacks default to the simpler ring-per-dim kernel because its α disadvantage is small at production dim sizes even in the best case, and its BW coefficient is never worse.
 
-**Limitations.** All of §3.4's floating-point-associativity, dim-aligned-group-layout, and wraparound-wiring caveats apply verbatim. The per-dim halving-doubling schedule adds the power-of-2 $d_i$ constraint on top.
+**Limitations.** §3.4's floating-point-associativity caveat and the dim-aligned-group-layout requirement (§5.2 item 2) apply verbatim. The per-dim halving-doubling schedule adds the power-of-2 $d_i$ constraint and the physical-hop caveat on top.
 
 ---
 
@@ -1176,7 +1180,7 @@ Three symbols recur throughout the torus / mesh cost formulas in §3–§4: **N*
 ### B.1 Definitions
 
 - **$d_i$ — dim size along axis $i$.** The number of ranks sitting on axis $i$ of a k-D lattice. For a k-D torus or mesh, the collection $(d_1, d_2, \ldots, d_k)$ is the **shape**. A 4×3×2 lattice has $d_1 = 4$, $d_2 = 3$, $d_3 = 2$.
-  - **Symmetric**: all $d_i$ equal — write $d^k$ or "$d \times d \times d$ ...". TPU v5p's $16 \times 16 \times 16$ has $d = 16$.
+  - **Symmetric**: all $d_i$ equal — write $d^k$ or "$d \times d \times d$ ...". TPU v4's $16 \times 16 \times 16$ has $d = 16$.
   - **Asymmetric**: $d_i$ differ — e.g., $16 \times 16 \times 4$.
   - $d_{\max} = \max_i d_i$: the largest dim size, which sets the A2A bisection penalty (§3.6).
 
@@ -1262,7 +1266,7 @@ One rank count $N$ admits many shapes, each with its own diameter:
 Two patterns:
 
 1. **Higher $k$ → smaller $D$ at fixed $N$.** From 1D (D = 256) to 4D (D = 10), diameter compresses ~25×. This is the $O(N^{1/k})$ scaling that §3 attributes to dim-decomposition — factoring the collective across $k$ dims lets each dim-ring be short.
-2. **Wraparound halves per-axis $D$.** 3D 8³ torus has D = 12; same-shape mesh has D = 21 (~1.75× larger). At larger $d$ the ratio approaches 2× — the structural reason torus outperforms mesh on α-term (§4.2 pros).
+2. **Wraparound halves per-axis $D$.** 3D 8³ torus has D = 12; same-shape mesh has D = 21 (~1.75× larger). At larger $d$ the ratio approaches 2× — the structural reason torus outperforms mesh on the α term for bidirectional BC / Reduce and for A2A (§4.2, "What does *not* transfer"); AR / AG / RS α is the same on both.
 
 ### B.5 Role in cost formulas
 
@@ -1270,9 +1274,9 @@ The three quantities map to different parts of the α-β cost model:
 
 | Quantity | Appears in | Example formula |
 |---|---|---|
-| $N$ | BW term | $(N-1)/N \cdot M / \mathrm{BW}$ (flat-ring AR bandwidth coefficient) |
-| $d_i$ | BW-telescoping during dim-decomp | after phase-$i$ RS, chunk size becomes $M / \prod_{j \leq i} d_j$ |
-| $D$ | α-term (traversal latency) | flat-ring AR pays $2(N-1)\alpha$; dim-decomposed AR pays $2 \sum_i (d_i - 1) \alpha$ |
+| $N$ | BW term | $(N-1)/N \cdot M / \mathrm{BW}$ (ring AG / RS bandwidth coefficient; AR pays it twice, $2(N-1)/N$) |
+| $d_i$ | BW-telescoping and per-dim α during dim-decomp | after phase-$i$ RS, chunk size becomes $M / \prod_{j \leq i} d_j$; dim-decomposed AR pays $2 \sum_i (d_i - 1)\\,\alpha$ (vs flat ring's $2(N-1)\\,\alpha$) |
+| $D$ | α-term of diameter-bound schedules | bidirectional torus BC / Reduce and ring-relay A2A pay $D \cdot \alpha = \sum_i \lfloor d_i/2 \rfloor\\,\alpha$ |
 | $d_{\max}$ | A2A bisection penalty | torus A2A BW term = $d_{\max}/8 \cdot M/\mathrm{BW}$ |
 
 Practical rule of thumb:
@@ -1340,7 +1344,7 @@ This is **not** the phase time — after $a{\to}k$ arrives, the cut link that ca
 
 $$\text{cross-cut bytes, L}\to\text{R} \\;=\\; \tfrac{N}{2} \cdot \tfrac{N}{2} \cdot \tfrac{M}{N} \\;=\\; 8 \cdot 8 \cdot \tfrac{M}{16} \\;=\\; 4M$$
 
-*Byte-count is fixed by A2A semantics (not by routing).* A shortest-arc route from a left-half source to a right-half destination transitions halves exactly once — it uses exactly one cut edge, regardless of which shortest path is chosen. For $a{\to}k$, three equally-short routes exist; each uses exactly one cut hop:
+*Byte-count is fixed by A2A semantics (not by routing).* A shortest-arc route from a left-half source to a right-half destination transitions halves exactly once — it uses exactly one cut edge, regardless of which shortest path is chosen. For $a{\to}k$, 24 equally-short routes exist (2 X-directions × 2 Y-directions × 6 hop interleavings); three are shown, and each uses exactly one cut hop:
 
 ```
   X-first direct:   a ─I─→ b ─C─→ c ─I─→ g ─I─→ k        (cut at hop 2)
@@ -1383,7 +1387,7 @@ $$t_{b{\to}c\\,\text{occupancy}} \\;=\\; 8 \cdot \frac{M}{16 \\, \mathrm{BW}} \\
 
 | Quantity | 4×4 value | General formula |
 |---|---|---|
-| Severed-link count | 8 | $2N / d_{\max}$ (2 links per dim-line × $N/d_{\max}$ dim-lines across the cut) |
+| Severed-link count | 8 | $2N / d_{\max}$ (2 links per dim-line × $N/d_{\max}$ dim-lines across the cut; for $d_{\max} \geq 3$ — see §3.6 for the $d_i = 2$ case) |
 | Cross-cut chunks (one direction) | 64 | $(N/2) \cdot (N/2) = N^2/4$ |
 | Cross-cut bytes (one direction) | $4M$ | $(N^2/4) \cdot (M/N) = NM/4$ |
 | Cut throughput (one direction) | $8\\,\mathrm{BW}$ | $(2N / d_{\max}) \cdot \mathrm{BW}$ |
@@ -1397,7 +1401,7 @@ $$t_{\mathrm{BW}} \\;=\\; \frac{NM/4}{(2N/d_{\max}) \cdot \mathrm{BW}} \\;=\\; \
 
 **The bottleneck-vs-personal ratio**, quantifying how much more loaded the bottleneck link is than one chunk's private path (chunks sharing the bottleneck, divided by hops in one chunk's journey):
 
-$$\frac{t_{\mathrm{bottleneck}}}{t_{\mathrm{longest chunk personal}}} \\;=\\; \frac{\text{chunks per cut link}}{\text{longest chunk hop count}} \\;=\\; \frac{N \cdot d_{\max} / 8}{\mathrm{diam}}$$
+$$\frac{t_{\mathrm{bottleneck}}}{t_{\mathrm{longest\\ chunk\\ personal}}} \\;=\\; \frac{\text{chunks per cut link}}{\text{longest chunk hop count}} \\;=\\; \frac{N \cdot d_{\max} / 8}{\mathrm{diam}}$$
 
 4×4 check: $(16 \cdot 4 / 8) / 4 = 8/4 = 2$ ✓ — the bottleneck serves 8 chunks while a single chunk's journey has only 4 hops, so the link is "shared more broadly" than any one chunk's path is "long."
 
@@ -1408,13 +1412,13 @@ Evaluated across a few shapes:
 | 4×4 (our case) | 16 | 4 | 4 | 8 | 4 | 2 |
 | 8×8 | 64 | 8 | 8 | 64 | 8 | 8 |
 | 8×8×8 | 512 | 8 | 12 | 512 | 12 | ~43 |
-| 16×16×16 (TPU v5p) | 4096 | 16 | 24 | 8192 | 24 | ~341 |
+| 16×16×16 (TPU v4) | 4096 | 16 | 24 | 8192 | 24 | ~341 |
 
 The ratio grows roughly as $N / \mathrm{diam}$: large tori accumulate many chunks on each cut link while the longest journey grows only slowly (linearly in dim-size), so the bottleneck term increasingly dominates any individual chunk's personal BW cost. The 4×4 case is pedagogically convenient because the ratio is a clean small number; at production scale the bottleneck is hundreds of times larger than a single chunk's BW cost.
 
 **Re-use interpretation (bridge analogy).** What the bottleneck formula is actually computing: **how many times is the bottleneck link re-used over the phase, and how long does each re-use take?**
 
-$$t_{\mathrm{BW, bottleneck}} \\;=\\; \underbrace{(\text{\\# re-uses of bottleneck link})}_{\text{= \\# chunks through it}} \\;\times\\; \underbrace{(\text{per-use time})}_{\text{= chunk size / BW}}$$
+$$t_{\mathrm{BW, bottleneck}} \\;=\\; \underbrace{(\text{\\# re-uses of bottleneck link})}\_{\text{= \\# chunks through it}} \\;\times\\; \underbrace{(\text{per-use time})}\_{\text{= chunk size / BW}}$$
 
 At b→c: 8 re-uses × M/(16·BW) per re-use = M/(2·BW). The ideal formula assumes **perfect pipelining** — each re-use happens back-to-back, with the link at 100% utilization during its busy period. (Real deployments fall short due to switch queueing, flow-control stalls, and scheduler bubbles; that gap is priced by $\eta_\beta$ in `05_contention_and_congestion.md` §4.)
 
@@ -1439,7 +1443,7 @@ For ring RS, traffic is balanced by construction. Per-step-per-rank is the easie
 Bottleneck analysis is strictly more general; it gives the tight bound even when per-link symmetry breaks:
 
 - **Oversubscribed fat-tree** (`03_hierarchical_topologies.md` §1): upper-tier links loaded $s \times$ more than lower-tier. Per-link-uniform doesn't apply.
-- **Off-prefix torus group layouts** (§7): some dim-lines loaded more than others when the collective's ranks don't tile the torus cleanly.
+- **Off-prefix torus group layouts** (§5.2 item 2; `05_contention_and_congestion.md` §3.1): some dim-lines loaded more than others when the collective's ranks don't tile the torus cleanly.
 - **Hotspot traffic** (e.g., skewed MoE expert routing): some destinations receive disproportionately more traffic, concentrating load on specific links.
 - **Non-uniform routing policies**: deterministic routing may not evenly distribute chunks across alternate paths.
 
@@ -1469,5 +1473,5 @@ $$t_{\mathrm{BW, realized}} \\;=\\; \frac{\text{bottleneck bytes}}{\eta_\beta \c
 - **`01_collective_algorithms.md`** — topology-free derivations of the ring, tree, RS, AG, and A2A primitives. Prerequisite for the per-topology cost formulas above.
 - **`04_in_network_collectives.md`** — how SHARP / NVLS collapses the $O(N)$ endpoint-hop cost on star topologies to $O(1)$ switch-hop cost.
 - **`05_contention_and_congestion.md`** — extending the ideal formulas above with $\eta_\alpha$, $\eta_\beta$ coefficients to score concurrent-group and off-prefix effects.
-- **`03_hierarchical_topologies.md`** — composing the single-tier topologies above into multi-tier hierarchies (NVL72 star inside a Clos, chiplet mesh inside a star inside a Clos), with the associated hierarchical-collective cost rules and device-domain allocation problem.
+- **`03_hierarchical_topologies.md`** — composing the single-tier topologies above into multi-tier hierarchies (NVL72 star inside a Clos, chiplet mesh inside a star inside a Clos), with the associated hierarchical-collective cost rules.
 - **`references.md`** — primary-source citations for the cost formulas in this note (Patarasuk-Yuan bandwidth-optimal AR, Chan et al. dim-decomposed AR).

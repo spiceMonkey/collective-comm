@@ -16,20 +16,20 @@
    - 3.1 [Off-prefix group layouts](#31-off-prefix-group-layouts)
    - 3.2 [Concurrent collective groups](#32-concurrent-collective-groups)
    - 3.3 [Skewed MoE routing](#33-skewed-moe-routing)
-4. [Contention coefficients $\eta_\alpha$ and $\eta_\beta$](#4-contention-coefficients-η_α-and-η_β)
+4. [Contention coefficients $\eta_\alpha$ and $\eta_\beta$](#4-contention-coefficients-eta_alpha-and-eta_beta)
    - 4.1 [Calibration from public benchmarks](#41-calibration-from-public-benchmarks)
-   - 4.2 [Per-tier $\eta$ on hierarchical fabrics](#42-per-tier-η-on-hierarchical-fabrics)
-5. [Re-running $N = 512$ under realistic $\eta$](#5-re-running-n--512-under-realistic-η)
+   - 4.2 [Per-tier $\eta$ on hierarchical fabrics](#42-per-tier-eta-on-hierarchical-fabrics)
+5. [Re-running $N = 512$ under realistic $\eta$](#5-re-running-n--512-under-realistic-eta)
    - 5.1 [Ideal vs realistic AR cost](#51-ideal-vs-realistic-ar-cost)
    - 5.2 [What changed](#52-what-changed)
    - 5.3 [Margin compression](#53-margin-compression)
-   - 5.4 [AG / RS and A2A under realistic $\eta$](#54-ag--rs-and-a2a-under-realistic-η)
+   - 5.4 [AG / RS and A2A under realistic $\eta$](#54-ag--rs-and-a2a-under-realistic-eta)
 6. [What the coefficient model doesn't capture](#6-what-the-coefficient-model-doesnt-capture)
    - 6.1 [Layout-dependent contention](#61-layout-dependent-contention)
    - 6.2 [Payload-size-dependent contention](#62-payload-size-dependent-contention)
    - 6.3 [Dynamic patterns](#63-dynamic-patterns)
    - 6.4 [Cross-tier propagation in multi-tier fabrics](#64-cross-tier-propagation-in-multi-tier-fabrics)
-7. [When $\eta$ is load-bearing](#7-when-η-is-load-bearing)
+7. [When $\eta$ is load-bearing](#7-when-eta-is-load-bearing)
 8. [Further reading](#further-reading)
 
 ---
@@ -89,7 +89,7 @@ These are fixable in the scheduler — different rank layout, different group pl
 
 ### 3.1 Off-prefix group layouts
 
-Torus dim-decomp AR hits $n_\alpha = 2 \sum (D_i - 1)$ only when the collective group's ranks are contiguous along dim prefixes. A group of 16 ranks on an $8 \times 8 \times 8$ torus where the ranks are $\\{(0,0,0), (1,0,0), \ldots, (7,0,0), (0,1,0), \ldots\\}$ is prefix-contiguous along dim-0 — the algorithm runs as a single 8-ring.
+Torus dim-decomp AR hits $n_\alpha = 2 \sum (d_i - 1)$ only when the collective group's ranks are contiguous along dim prefixes. A group of 16 ranks on an $8 \times 8 \times 8$ torus where the ranks are $\\{(0,0,0), (1,0,0), \ldots, (7,0,0), (0,1,0), \ldots\\}$ is prefix-contiguous along dim-0 — the algorithm runs as an 8-ring along dim-0 followed by a 2-ring along dim-1.
 
 But SLURM-style scatter allocation, or a job that inherits a random-looking rank layout, produces groups where ranks are spread across dim coordinates. Each algorithmic hop becomes a multi-hop path in the physical topology. The formula degrades back to the flat-ring bound ($n_\alpha \approx 2(N-1)$), often 2-4× the ideal. This is a **scheduler choice**, not a hardware limit: prefix-aligned allocation policies exist, and when available they eliminate this penalty entirely.
 
@@ -97,11 +97,11 @@ But SLURM-style scatter allocation, or a job that inherits a random-looking rank
 
 ### 3.2 Concurrent collective groups
 
-If the cluster runs DP = 8 replicas each doing TP = 8 AR simultaneously, where those 8 groups land on the physical fabric matters. On a **star** with $N = 64$ ports, the 8 groups partition into 8 disjoint port octets — each sees full BW with zero interference. **Torus is different**: if the 8 replicas share a common dim (e.g., all TP groups run along the X-axis), those 8 rings physically traverse the same links, and their aggregate BW is split. The ideal dim-decomp AR formula assumes rings occupy disjoint links across dims; concurrent-group layouts can violate that assumption.
+If the cluster runs DP = 8 replicas each doing TP = 8 AR simultaneously, where those 8 groups land on the physical fabric matters. On a **star** with $N = 64$ ports, the 8 groups partition into 8 disjoint port octets — each sees full BW with zero interference. **Torus is different**: two groups interfere only when their rings traverse the same physical links. Eight TP = 8 groups that each occupy a *whole* dim-line (8 of the 64 X-rings of an $8 \times 8 \times 8$ torus) are link-disjoint and each sees full BW. But groups that share a dim-line — two TP = 4 groups on one 8-ring, or groups whose off-prefix placement routes through each other's ranks — put their traffic on the same links, and the per-link BW is split. The ideal dim-decomp AR formula assumes each group's rings are link-disjoint from every other group's; concurrent-group layouts can violate that assumption.
 
-Like off-prefix layouts, this is a **layout choice** made by the job scheduler. A layout-aware scheduler that distributes concurrent TP groups across orthogonal dims avoids the penalty; a naive scheduler pays it.
+Like off-prefix layouts, this is a **layout choice** made by the job scheduler. A layout-aware scheduler that gives each concurrent group its own dim-lines avoids the penalty; a naive scheduler pays it.
 
-**Residual unavoidable case.** Sharing is forced when: (a) **concurrency exceeds dim count** — 8 concurrent TP groups on a 3D torus have only 3 orthogonal dims to spread across, so at least 3 groups must share a dim; (b) **TP size pins the dim** — TP = 8 on an $8 \times 8 \times 8$ torus must run along a full-dim axis, and every concurrent DP replica doing TP = 8 is forced onto that axis. Once forced, the per-dim BW splits across groups.
+**Residual unavoidable case.** Sharing is forced when: (a) **a group does not fill its dim-line** — a TP = 4 group on an 8-ring has no private wraparound, so it either runs as an open line (the $k$-D mesh cost of `02_topology_mapping.md §4.2`) or closes its ring through the links of the group next to it; (b) **traffic transits other groups' blocks** — collectives whose members are not adjacent (A2A across the pod, PP hand-offs between distant stages, any off-prefix group) forward through links inside blocks owned by other groups, loading them however well those groups were placed. Once forced, the per-link BW splits across the groups sharing it.
 
 ### 3.3 Skewed MoE routing
 
@@ -138,9 +138,9 @@ A representative $\eta$ profile calibrated from public measurements:
 
 **Why $\eta_\beta^{\mathrm{INC}} < \eta_\beta^{\mathrm{DBT}}$ even though INC wins.** $\eta_\beta$ is measured against *raw* link BW, and the algorithmic factor sits in $n_\beta$. DBT's $n_\beta = 2$ already bakes in a 2× slack, so its $\eta_\beta = 0.80$ applies to a target that was never the full link. INC's $n_\beta = 1$ attempts the full link, and switch-ALU throughput plus multicast contention keep it from fully realizing that — so its $\eta_\beta$ looks lower, even though its *realized* per-rank BW ($0.52 \cdot \mathrm{BW}$) still beats DBT's ($0.80 \cdot \mathrm{BW} / 2 = 0.40 \cdot \mathrm{BW}$) by $\sim 1.3\times$.
 
-**These are worst-case-realistic, not typical.** A well-tuned deployment with prefix-aligned groups (§3.1) and SHARP-enabled AR will see much smaller $\eta$ penalties — the profile is a lower bound on performance, not an expectation.
+**These are worst-case-realistic, not typical.** A well-tuned deployment with prefix-aligned groups (§3.1) and link-disjoint concurrent groups (§3.2) will see smaller torus $\eta$ penalties — the profile is a lower bound on performance, not an expectation.
 
-**Calibrating proprietary or newer fabrics.** Run NCCL-tests (or an equivalent collective benchmark) under the intended concurrent-group pattern and back out $\eta$ from the ratio of measured `busbw` to the theoretical peak of `algbw`.
+**Calibrating proprietary or newer fabrics.** Run NCCL-tests (or an equivalent collective benchmark) under the intended concurrent-group pattern and back out $\eta$ from the ratio of measured `busbw` to the raw per-direction link BW (the theoretical peak of `busbw`).
 
 ### 4.2 Per-tier $\eta$ on hierarchical fabrics
 
@@ -150,23 +150,23 @@ The flat-scalar profile above (one $(\eta_\alpha, \eta_\beta)$ pair per fabric) 
 
 $$\eta_\beta^{\mathrm{upper\text{-}tier}} \\;\leq\\; \min\\!\left(\eta_\beta^{\mathrm{hw\\,floor}}, \\; \frac{1}{s}\right)$$
 
-The inequality binds at $1/s$ whenever $s$ drives the cap below the tier's hardware floor (e.g., $s = 2$ at a tier whose hardware floor would otherwise be $0.80$ caps realized $\eta_\beta$ at $0.50$). Below $1/s$ the actual value is further discounted by ECMP (Equal-Cost Multi-Path) hash collisions, queue-buildup arbitration, and tier-coupling backpressure. ECMP load-balances each flow across one of several equal-cost upper-tier paths by hashing the packet's 5-tuple (src/dst IP, src/dst port, protocol) — deterministic per flow (so packets within a flow stay in order), but when distinct flows hash to the same path they pile onto it and leave other equivalent paths idle. The $\alpha$ side gets an **additive** inflation $\eta_\alpha > 1$ from cross-tier queueing under load (§2.2), not from oversubscription directly — oversubscription is a BW lever.
+The inequality binds at $1/s$ whenever $s$ drives the cap below the tier's hardware floor (e.g., $s = 2$ at a tier whose hardware floor would otherwise be $0.80$ caps realized $\eta_\beta$ at $0.50$). Below $1/s$ the actual value is further discounted by ECMP (Equal-Cost Multi-Path) hash collisions, queue-buildup arbitration, and tier-coupling backpressure. ECMP load-balances each flow across one of several equal-cost upper-tier paths by hashing the packet's 5-tuple (src/dst IP, src/dst port, protocol) — deterministic per flow (so packets within a flow stay in order), but when distinct flows hash to the same path they pile onto it and leave other equivalent paths idle. The $\alpha$ side gets its own inflation factor $\eta_\alpha > 1$ from cross-tier queueing under load (§2.2), not from oversubscription directly — oversubscription is a BW lever.
 
 **Per-tier $\eta$ profile for a 2-tier leaf-spine fabric.** At representative oversubscription ratios:
 
 | Tier | Role | $\eta_\alpha$ | $\eta_\beta$ at $s = 1$ | $\eta_\beta$ at $s = 2$ | $\eta_\beta$ at $s = 4$ |
 |---|---|---|---|---|---|
 | Leaf (endpoint ↔ leaf switch) | Intra-leaf traffic only | 1.00 | 0.80 | 0.80 | 0.80 |
-| Spine (leaf ↔ spine) | Cross-leaf traffic | 1.10–1.30 | 0.80 | 0.40 | 0.20 |
-| **Aggregate cross-leaf** |  | $\eta_\alpha^{\mathrm{spine}}$ | $\min(0.80, 1)$ | $\min(0.80, 0.50) = 0.50$ | $\min(0.80, 0.25) = 0.25$ |
+| Spine (leaf ↔ spine) | Cross-leaf traffic | 1.10–1.30 | 0.80 | 0.50 | 0.25 |
+| **Aggregate cross-leaf** |  | $\eta_\alpha^{\mathrm{spine}}$ | $\min(0.80, 1) = 0.80$ | $\min(0.80, 0.50) = 0.50$ | $\min(0.80, 0.25) = 0.25$ |
 
 The leaf row matches the single-tier NVSwitch-class floor (§4.1's crossbar row) because per-endpoint BW is not oversubscribed. The spine row's $\eta_\beta$ is $\min(0.80, 1/s)$ — oversubscription dominates the hardware floor once $s > 1.25$. $\eta_\alpha^{\mathrm{spine}} = 1.10\text{–}1.30$ reflects cross-tier queueing at moderate load on credit-based flow control (InfiniBand) or PFC-configured Ethernet; the factor climbs to 2–3× as fabric utilization crosses 80%.
 
-**3-tier Clos.** A super-spine tier extends the table with a third row. If the super-spine is oversubscribed at $s_3$ independently of the spine-tier $s_2$, cross-pod BW compounds: $\eta_\beta^{\mathrm{cross\text{-}pod}} \leq \min(1/s_2, \\, 1/s_3)$ when traffic crosses both tiers. Most production Clos fabrics oversubscribe only one tier (typically the super-spine at $s_3 \in \\{2, 4\\}$), keeping the leaf-spine tier at $s_2 = 1$ — which pins $\eta_\beta^{\mathrm{cross\text{-}pod}} \leq 1/s_3$.
+**3-tier Clos.** A super-spine tier extends the table with a third row. If the super-spine is oversubscribed at $s_3$ independently of the spine-tier $s_2$, cross-pod BW compounds: $\eta_\beta^{\mathrm{cross\text{-}pod}} \leq 1/(s_2 \cdot s_3)$ when traffic crosses both tiers (the two ratios multiply). Most production Clos fabrics oversubscribe only one tier (typically the super-spine at $s_3 \in \\{2, 4\\}$), keeping the leaf-spine tier at $s_2 = 1$ — which pins $\eta_\beta^{\mathrm{cross\text{-}pod}} \leq 1/s_3$.
 
 **Applying per-tier $\eta$ in the AR cost formula.** For the two-tier RS → sub-AR → AG decomposition from `03_hierarchical_topologies.md §2.1`, each phase uses its own tier's coefficients:
 
-$$t_{\mathrm{AR,realistic}} \\;=\\; \underbrace{t_{\mathrm{RS,inner}}\\!\left(\tfrac{N}{L},\\, M\right)}_{\text{at } (\eta_\alpha^{\mathrm{inner}},\\, \eta_\beta^{\mathrm{inner}})} \\;+\\; \underbrace{t_{\mathrm{AR,outer}}\\!\left(L,\\, \tfrac{ML}{N}\right)}_{\text{at } (\eta_\alpha^{\mathrm{outer}},\\, \eta_\beta^{\mathrm{outer}})} \\;+\\; \underbrace{t_{\mathrm{AG,inner}}\\!\left(\tfrac{N}{L},\\, M\right)}_{\text{at } (\eta_\alpha^{\mathrm{inner}},\\, \eta_\beta^{\mathrm{inner}})}$$
+$$t_{\mathrm{AR,realistic}} \\;=\\; \underbrace{t_{\mathrm{RS,inner}}\\!\left(\tfrac{N}{L},\\, M\right)}\_{\text{at } (\eta_\alpha^{\mathrm{inner}},\\, \eta_\beta^{\mathrm{inner}})} \\;+\\; \underbrace{t_{\mathrm{AR,outer}}\\!\left(L,\\, \tfrac{ML}{N}\right)}\_{\text{at } (\eta_\alpha^{\mathrm{outer}},\\, \eta_\beta^{\mathrm{outer}})} \\;+\\; \underbrace{t_{\mathrm{AG,inner}}\\!\left(\tfrac{N}{L},\\, M\right)}\_{\text{at } (\eta_\alpha^{\mathrm{inner}},\\, \eta_\beta^{\mathrm{inner}})}$$
 
 The `inner`/`outer` naming follows `03_hierarchical_topologies.md §1.2`. In a flat leaf-spine Clos (single GPUs attached directly to leaves), `inner` is intra-leaf (η table's leaf row) and `outer` is cross-leaf (aggregate cross-leaf row, capped by $\min(\eta_\beta^{\mathrm{hw}},\\, 1/s)$). In a NVL72 + IB SuperPOD, `inner` is the intra-pod NVLink fabric and `outer` is the IB Clos itself, with the leaf/spine sub-tiers feeding into $\eta^{\mathrm{outer}}$.
 
@@ -183,14 +183,14 @@ Using the realistic profile from §4.1, re-run the AR ladder from `04_in_network
 | Topology + algo | $n_\alpha$ | $n_\beta$ | Ideal $\alpha$ | Ideal BW | **Ideal total** | $\eta_\alpha$ | $\eta_\beta$ | Realistic $\alpha$ | Realistic BW | **Realistic total** |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Hypothetical star + NVLS (INC) | 2 | 1 | 1 μs | 17.8 μs | **18.8 μs** | 1.00 | 0.52 | 1 μs | 34.2 μs | **35 μs** |
-| Star + DBT (NCCL) | 18 | 2 | 9 μs | 35.5 μs | **45 μs** | 1.00 | 0.80 | 9 μs | 44.4 μs | **53 μs** |
-| Torus $8^3$ + dim-ring | 42 | 2 | 21 μs | 35.5 μs | **57 μs** | 1.20 | 0.60 | 25.2 μs | 59.2 μs | **84 μs** |
+| Star + DBT (NCCL) | 18 | 2 | 9 μs | 35.6 μs | **45 μs** | 1.00 | 0.80 | 9 μs | 44.4 μs | **53 μs** |
+| Torus $8^3$ + dim-ring | 42 | 2 | 21 μs | 35.5 μs | **57 μs** | 1.20 | 0.60 | 25.2 μs | 59.1 μs | **84 μs** |
 
 ### 5.2 What changed
 
-- **Star + INC loses $\sim 16\\,\mu$s** (86% increase — the largest *relative* penalty of the three). Its ideal BW term is already at the raw-link ceiling ($M / \mathrm{BW}$), so the $\eta_\beta = 0.52$ realization loss nearly doubles the wall-clock cost. Despite this, INC is still the fastest at 35 μs — ~1.5× ahead of star+DBT and ~2.4× ahead of torus.
-- **Star + DBT loses $\sim 8\\,\mu$s** (18% increase). The BW-dominated cost is inflated by $\eta_\beta = 0.80$; $\alpha$ is unaffected. A flat penalty on an already small BW term.
-- **Torus loses $\sim 27\\,\mu$s** (47% increase). Both $\eta_\alpha$ and $\eta_\beta$ hit it. The BW term goes from matching star (35.5 μs) to 65% worse (59.2 μs). The $\alpha$ term inflates 20%.
+- **Star + INC loses $\sim 16\\,\mu$s** (87% increase — the largest *relative* penalty of the three). Its ideal BW term is already at the raw-link ceiling ($M / \mathrm{BW}$), so the $\eta_\beta = 0.52$ realization loss nearly doubles the wall-clock cost. Despite this, INC is still the fastest at 35 μs — ~1.5× ahead of star+DBT and ~2.4× ahead of torus.
+- **Star + DBT loses $\sim 9\\,\mu$s** (20% increase). The BW-dominated cost is inflated by $\eta_\beta = 0.80$; $\alpha$ is unaffected.
+- **Torus loses $\sim 28\\,\mu$s** (49% increase). Both $\eta_\alpha$ and $\eta_\beta$ hit it. The BW term goes from 35.5 μs — level with star — to 59.1 μs: 67% above its own ideal, and a third above star + DBT's realistic 44.4 μs. The $\alpha$ term inflates 20%.
 
 ### 5.3 Margin compression
 
@@ -200,13 +200,13 @@ Using the realistic profile from §4.1, re-run the AR ladder from `04_in_network
 | Star + DBT | 45 μs | 53 μs | $2.4\times$ → $1.5\times$ |
 | Torus dim-decomp | 57 μs | 84 μs | $3.0\times$ → $2.4\times$ |
 
-**Takeaway:** the ideal-model ranking is preserved — INC < DBT < torus — but the margins compress *toward* INC as realistic contention kicks in. This is the mirror image of the naive expectation. INC's ideal ceiling is the highest above its realistic cost (86% inflation) because its BW term is closest to the raw-link limit and has nowhere left to hide; DBT and torus start further from their limits and absorb contention into already-padded BW terms. The gap between INC and the next-best software collective compresses from $2.4\times$ to $1.5\times$, and the gap to torus from $3.0\times$ to $2.4\times$ — INC is still the winner, but the ceiling-vs-realized story flagged in `04_in_network_collectives.md §4` (limit 6) is where most of the "marketed 2× vs measured 1.3×" NVLS lift goes.
+**Takeaway:** the ideal-model ranking is preserved — INC < DBT < torus — but the margins compress *toward* INC as realistic contention kicks in. This is the mirror image of the naive expectation. INC's ideal ceiling is the highest above its realistic cost (87% inflation) because its BW term is closest to the raw-link limit and has nowhere left to hide; DBT and torus start further from their limits and absorb contention into already-padded BW terms. The gap between INC and the next-best software collective compresses from $2.4\times$ to $1.5\times$, and the gap to torus from $3.0\times$ to $2.4\times$ — INC is still the winner, but the ceiling-vs-realized story flagged in `04_in_network_collectives.md §4` (limit 6) is where most of the "marketed 2× vs measured 1.3×" NVLS lift goes.
 
-The non-INC margins also compress: star+DBT vs torus goes from 45 vs 57 μs (~25% gap) ideal to 53 vs 84 μs (~60% gap) realistic, because torus pays $\eta$ at both $\alpha$ and BW while star+DBT only pays it on BW. The "star vs torus" decision under realistic $\eta$ is more contention-sensitive than the ideal numbers suggest.
+The star-vs-torus margin moves the other way — it widens: star+DBT vs torus goes from 45 vs 57 μs (~27% gap) ideal to 53 vs 84 μs (~58% gap) realistic, because torus pays $\eta$ at both $\alpha$ and BW while star+DBT only pays it on BW. The "star vs torus" decision under realistic $\eta$ is more contention-sensitive than the ideal numbers suggest.
 
 ### 5.4 AG / RS and A2A under realistic $\eta$
 
-§5.1–§5.3 covered AR. Re-running the AG / RS and A2A ladders from `04_in_network_collectives.md §3.3` at the same anchor ($N = 512$, $M = 16\\,\mathrm{MB}$, $\alpha = 0.5\\,\mu$s, $\mathrm{BW} = 900\\,\mathrm{GB/s}$) uses a different $\eta_\beta$ for the INC row than AR did: there is no switch-ALU on the AG / RS critical path (only multicast), so INC AG / RS inherits the crossbar-multicast baseline $\eta_\beta = 0.80$ rather than NVLS's 0.52. This is the coefficient-level reflection of the "no BW ceiling lift" structural point from `04_in_network_collectives.md §1.4`: INC AG / RS runs at the same realized BW as a well-scheduled software AG / RS on a full-duplex crossbar.
+§5.1–§5.3 covered AR. Re-running the AG / RS and A2A ladders from `04_in_network_collectives.md §3.3` at the same anchor ($N = 512$, $M = 16\\,\mathrm{MB}$, $\alpha = 0.5\\,\mu$s, $\mathrm{BW} = 900\\,\mathrm{GB/s}$) uses a different $\eta_\beta$ for the INC row than AR did: INC AG uses only the multicast path (no switch ALU), so it inherits the crossbar-multicast baseline $\eta_\beta = 0.80$ rather than NVLS's 0.52. INC RS does pass through the switch ALU, and there is no separate public calibration for it; the table applies the same 0.80 to both as the optimistic case (at NVLS's 0.52 the RS row's realistic BW term would be 34.1 μs and its total 35.1 μs — behind star + RHD's 26.7 μs, so INC RS's lead in the table below rests on this assumption). This is the coefficient-level reflection of the "no BW ceiling lift" structural point from `04_in_network_collectives.md §1.4`: INC AG / RS runs at the same realized BW as a well-scheduled software AG / RS on a full-duplex crossbar.
 
 **AG / RS.**
 
@@ -221,14 +221,14 @@ The non-INC margins also compress: star+DBT vs torus goes from 45 vs 57 μs (~25
 | Topology + algo | Ideal $\alpha$ | Ideal BW | **Ideal total** | $\eta_\alpha$ | $\eta_\beta$ | Realistic $\alpha$ | Realistic BW | **Realistic total** |
 |---|---|---|---|---|---|---|---|---|
 | Star + pairwise (NCCL) | 255.5 μs | 17.7 μs | **273 μs** | 1.00 | 0.80 | 255.5 μs | 22.2 μs | **278 μs** |
-| Hypothetical star + INC | — | — | — | — | — | — | — | **N/A on shipping hardware** |
+| Hypothetical star + INC | — | — | — | — | — | — | — | **N/A on shipping NVSwitch / Quantum-X800** (HW A2A: `04_in_network_collectives.md §1.3`) |
 | Torus $8^3$ + bisection (TPU / Trainium) | 6.0 μs | 17.8 μs | **23.8 μs** | 1.20 | 0.60 | 7.2 μs | 29.6 μs | **36.8 μs** |
 
 Three observations:
 
-- **AG / RS margins are already tight and stay tight.** Star INC (23.2 μs) vs star RHD (26.7 μs) vs torus (42.2 μs). The ideal $1.2\times$ INC-vs-RHD gap compresses slightly to $1.15\times$ under realistic $\eta$ — $\alpha$ savings are preserved (INC still wins on $n_\alpha$), but both rows hit the same BW floor so contention doesn't open the gap. AG / RS is a fundamentally $\alpha$-dominated primitive at this $M$; the whole INC-vs-software fight happens on the $\alpha$ side.
-- **A2A ranking holds torus under any realistic scoring.** Ideal: torus 23.8 μs < pairwise 273 μs. Realistic: torus 36.8 μs < pairwise 278 μs — ordering preserved, but torus's $\sim 11.5\times$ ideal advantage over the shipped NCCL pairwise compresses to $\sim 7.5\times$ under $\eta$ because pairwise's $\alpha$-dominated cost absorbs contention only on the tiny BW term while torus pays $\eta$ on both. With no INC path available on shipping hardware, torus is the only primitive that scales A2A without a bisection penalty at large $N$; this is the forward-looking reason Rubin-generation HW-A2A and Tomahawk Ultra's INC A2A exist, and the main A2A mitigation until they ship at scale.
-- **Realistic-$\eta$ collapses the cross-primitive ordering into a simple rule.** AR wins by ~$1.5\times$ on INC-capable star; AG / RS wins by ~$1.2\times$ on INC; A2A wins by ~$7.5\times$ on cubic torus (no INC help on shipping HW). The realistic $\eta$ profile doesn't reshuffle the winner within each primitive but does tighten every margin — which directly feeds the topology-choice Pareto sweep of `03_hierarchical_topologies.md §3.3` and §7 below.
+- **AG / RS margins are already tight and stay tight.** Star INC (23.2 μs) vs star RHD (26.7 μs) vs torus (42.2 μs). The ideal $1.2\times$ INC-vs-RHD gap compresses slightly to $1.15\times$ under realistic $\eta$ — $\alpha$ savings are preserved (INC still wins on $n_\alpha$), but both rows hit the same BW floor so contention doesn't open the gap. At this $M$ the AG / RS cost is BW-dominated, but the BW term is common to every contender, so the whole INC-vs-software fight happens on the $\alpha$ side.
+- **A2A ranking holds torus under any realistic scoring.** Ideal: torus 23.8 μs < pairwise 273 μs. Realistic: torus 36.8 μs < pairwise 278 μs — ordering preserved, but torus's $\sim 11.5\times$ ideal advantage over the shipped NCCL pairwise compresses to $\sim 7.5\times$ under $\eta$ because pairwise's $\alpha$-dominated cost absorbs contention only on the tiny BW term while torus pays $\eta$ on both. With no HW-A2A path on shipping NVSwitch Gen4 / Quantum-X800 hardware, the $8^3$ torus is the only option here that avoids the $(N-1)\\,\alpha$ serial-send term (its $d_{\max}/8$ bisection coefficient is $1\times$ at this shape); this is the forward-looking reason Rubin-generation HW-A2A and Tomahawk Ultra's INC A2A exist, and the main A2A mitigation until they ship at scale.
+- **Realistic-$\eta$ collapses the cross-primitive ordering into a simple rule.** AR wins by ~$1.5\times$ on INC-capable star; AG / RS wins by ~$1.2\times$ on INC (for RS, only under the optimistic $\eta_\beta = 0.80$ assumption above); A2A wins by ~$7.5\times$ on the $8^3$ torus (no INC help on shipping NVSwitch / Quantum-X800 HW). The realistic $\eta$ profile doesn't reshuffle the winner within each primitive, but it moves the margins unevenly: INC's lead over software-on-star compresses, software-on-star's lead over torus widens (INC-vs-torus compresses for AR and widens for AG / RS), and torus's A2A lead compresses — which directly feeds the topology-choice Pareto sweep of `03_hierarchical_topologies.md §3.3` and §7 below.
 
 ---
 
@@ -275,7 +275,7 @@ Cases where $\eta$-based ranking is **not enough** and you should escalate to re
 ## Further reading
 
 - **`04_in_network_collectives.md` §3.1** — the ideal-$\eta$ $N = 512$ AR ladder that this note re-runs under realistic $\eta$ in §5.
-- **`04_in_network_collectives.md` §1** — SHARP / NVLS effectively dodges contention by doing the reduction in the switch itself; the $\eta$ story for SHARP-enabled AR is much tighter than for software collectives.
+- **`04_in_network_collectives.md` §1** — SHARP / NVLS does the reduction in the switch itself, removing the per-step endpoint $\alpha$ that contention inflates; on the BW side the §4.1 calibration gives NVLS the lowest $\eta_\beta$ (0.52), because its $n_\beta = 1$ target is the full link.
 - **`03_hierarchical_topologies.md` §3.2** — how the $\eta$ profile here generalizes when topologies compose across tiers: each tier carries its own $(\eta_\alpha, \eta_\beta)$, and the hierarchical cost rule propagates them per phase.
 - **`02_topology_mapping.md` §5.2** — the four ways the ideal-$\eta$ model breaks (concurrent groups, off-prefix layouts, skewed A2A, mixed traffic), foreshadowed there and priced quantitatively in this note.
 - **`references.md`** — NCCL-tests methodology and TPU v4 paper for the calibration sources.

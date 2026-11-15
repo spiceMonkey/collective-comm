@@ -22,10 +22,10 @@ A walkthrough of collective communication for distributed GPU workloads — from
   collectives.md          and_congestion.md
 ```
 
-**Branch structure.** Read `01_collective_algorithms.md` → `02_topology_mapping.md` → `03_hierarchical_topologies.md` first (topology: single-tier, then multi-tier). After that, two independent branches:
+**Branch structure.** Read `01_collective_algorithms.md` → `02_topology_mapping.md` → `03_hierarchical_topologies.md` first (topology: single-tier, then multi-tier). After that, two branches — independent in concept, though the worked $N = 512$ numbers in `05_contention_and_congestion.md` §5 re-run the ladders tabulated in `04_in_network_collectives.md` §3:
 
 - `04_in_network_collectives.md` deepens SHARP / NVLS / Quantum SHARP — in-network reduction and switch multicast, on both star (`02_topology_mapping.md` §2) and fat-tree spine (`03_hierarchical_topologies.md` §1).
-- `05_contention_and_congestion.md` extends the ideal-model ladders from `02_topology_mapping.md` and `03_hierarchical_topologies.md` under realistic contention coefficients $\eta_\alpha, \eta_\beta$; per-tier $\eta$ profile for hierarchical fabrics.
+- `05_contention_and_congestion.md` re-runs the ideal-model ladders (formulas from `02_topology_mapping.md` and `03_hierarchical_topologies.md`, $N = 512$ tables from `04_in_network_collectives.md` §3) under realistic contention coefficients $\eta_\alpha, \eta_\beta$; per-tier $\eta$ profile for hierarchical fabrics.
 
 Read `04_in_network_collectives.md` for SHARP's $O(N) \to O(1)$ hop-count collapse; `05_contention_and_congestion.md` for how real-cluster contention changes ideal-model rankings.
 
@@ -33,12 +33,12 @@ Read `04_in_network_collectives.md` for SHARP's $O(N) \to O(1)$ hop-count collap
 
 | File | Topic | Prereq |
 |---|---|---|
-| `00_summary.md` | One-page cheatsheet: symbol table, seven primitives, per-algorithm $(n_\alpha, n_\beta)$ table, per-topology specializations, hierarchical composition rule, INC effects, η-realistic form, $N = 512$ anchor numbers | familiarity with the rest of the series |
+| `00_summary.md` | One-page cheatsheet: symbol table, seven primitives, per-algorithm $(n_\alpha, n_\beta)$ table, per-topology specializations, hierarchical composition rule, INC effects, η-realistic form | familiarity with the rest of the series |
 | `01_collective_algorithms.md` | α-β cost model; seven primitives (BC, Reduce, AR, RS, AG, A2A, P2P); binomial / pipelined BC / Reduce; ring / tree / recursive-doubling / Rabenseifner AR; mapping to TP/EP/SP/PP; algbw/busbw conventions | None |
-| `02_topology_mapping.md` | Three-topology catalog of single-tier scale-up fabrics: star, torus, mesh. Per-topology cost derivations; torus dim-decomp AR with 2×2 worked example; side-by-side comparison at $N = 512$ | `01_collective_algorithms.md` |
+| `02_topology_mapping.md` | Three-topology catalog of single-tier scale-up fabrics: star, torus, mesh. Per-topology cost derivations; torus dim-decomp AR with 2×2 worked example; per-topology cost summary (§5.1) | `01_collective_algorithms.md` |
 | `03_hierarchical_topologies.md` | Multi-tier Clos / fat-tree (§1, including the NVL72 SuperPOD case study); composition rules (RS → sub-AR → AG; A2A outlier) (§2); INC and per-tier $\eta$ in hierarchies (§3); rail-optimized SuperPOD topology and k-ary fat-tree appendices | `02_topology_mapping.md` |
 | `04_in_network_collectives.md` | SHARP / NVLS / Quantum SHARP — in-network reduction (switch ALU), switch multicast, and emerging HW A2A as distinct capabilities; how $n_\alpha$ collapses from $O(N)$ to $O(1)$ | `01_collective_algorithms.md`, `02_topology_mapping.md` §2, `03_hierarchical_topologies.md` §1 |
-| `05_contention_and_congestion.md` | Contention coefficients $\eta_\alpha, \eta_\beta$; single-tier and per-tier calibration (fat-tree oversubscription $s \to \eta_\beta \leq 1/s$); re-running $N = 512$ under realistic $\eta$ | `02_topology_mapping.md` §5, `03_hierarchical_topologies.md` §1 |
+| `05_contention_and_congestion.md` | Contention coefficients $\eta_\alpha, \eta_\beta$; single-tier and per-tier calibration (fat-tree oversubscription $s \to \eta_\beta \leq 1/s$); re-running $N = 512$ under realistic $\eta$ | `02_topology_mapping.md` §5, `03_hierarchical_topologies.md` §1, `04_in_network_collectives.md` §3 |
 
 ## Primitive → section map
 

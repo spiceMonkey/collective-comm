@@ -22,11 +22,6 @@ class PrimitiveSpec:
     notes: str = ""                     # short qualifier (e.g. "pipelined", "mesh")
 
 
-def _bw_only_full(M: float, BW: float) -> str:
-    """Throughput summary string for tabular display."""
-    return f"{M / BW * 1e6:.2f} μs (M/BW)"
-
-
 # ---------------------------------------------------------------------------
 # Registry — one row per primitive at default flags. Pipelined / mesh variants
 # are added as separate rows so the table reads as a wide cross-section.
@@ -102,7 +97,12 @@ PRIMITIVES: list[PrimitiveSpec] = [
     PrimitiveSpec(
         "AR", "tree_all_reduce (pipelined)", "01_collective_algorithms.md §5.2 / App. C",
         lambda a: cc.tree_all_reduce(a.M, a.G, a.alpha, a.bw, pipelined=True),
-        notes="P→P*",
+        notes="P→P*, single-port (n_β=2)",
+    ),
+    PrimitiveSpec(
+        "AR", "tree_all_reduce (pipelined, multi-port)", "01_collective_algorithms.md §5.2 / App. C",
+        lambda a: cc.tree_all_reduce(a.M, a.G, a.alpha, a.bw, pipelined=True, multi_port=True),
+        notes="P→P*, dedicated full-BW link per tree edge",
     ),
     PrimitiveSpec(
         "AR", "rabenseifner_all_reduce", "01_collective_algorithms.md App. B.2",
@@ -169,6 +169,7 @@ PRIMITIVES: list[PrimitiveSpec] = [
     PrimitiveSpec(
         "A2A", "ring_relay_a2a", "01_collective_algorithms.md §7.1",
         lambda a: cc.ring_relay_a2a(a.M, a.G, a.alpha, a.bw),
+        notes="1-D ring, bisection-bound",
     ),
     PrimitiveSpec(
         "A2A", "bruck_a2a", "01_collective_algorithms.md App. B.5",
@@ -198,6 +199,26 @@ PRIMITIVES: list[PrimitiveSpec] = [
             a.alpha_outer, a.bw_outer,
         ),
         notes="ring inner + ring outer",
+    ),
+    PrimitiveSpec(
+        "Hierarchical", "hierarchical_all_gather_ring_ring",
+        "03_hierarchical_topologies.md §2.1",
+        lambda a: cc.hierarchical_all_gather_ring_ring(
+            a.M, a.N_hier, a.L,
+            a.alpha_inner, a.bw_inner,
+            a.alpha_outer, a.bw_outer,
+        ),
+        notes="outer AG → inner AG",
+    ),
+    PrimitiveSpec(
+        "Hierarchical", "hierarchical_reduce_scatter_ring_ring",
+        "03_hierarchical_topologies.md §2.1",
+        lambda a: cc.hierarchical_reduce_scatter_ring_ring(
+            a.M, a.N_hier, a.L,
+            a.alpha_inner, a.bw_inner,
+            a.alpha_outer, a.bw_outer,
+        ),
+        notes="inner RS → outer RS",
     ),
 ]
 

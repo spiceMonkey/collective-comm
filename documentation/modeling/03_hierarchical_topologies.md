@@ -29,12 +29,12 @@ Single-tier fabrics hit hard scaling ceilings — NVSwitch radix, torus dimensio
 Each single-layer topology from `02_topology_mapping.md` has a hard scaling ceiling:
 
 - **Star** caps at switch radix (NVSwitch Gen4: 72 ports).
-- **Torus** caps at dimensional-wiring cost (TPU v5p: $16^3 = 4096$).
+- **Torus** caps at dimensional-wiring cost (TPU v4: $16^3 = 4096$ chips per pod).
 - **Full mesh** caps at $O(N^2)$ wire count (~8–16 endpoints).
 
 Beyond each ceiling, the only scaling path is to **compose topologies across tiers** — one topology inner, a different one outer. Modern production stacks are always multi-tier: NVL72 (star) inside InfiniBand (Clos); chiplets (mesh) inside a GPU inside NVLink (star) inside InfiniBand (Clos); TPU chips (torus) inside an ICI slice (torus) inside an inter-slice link. The canonical multi-tier switched construction is the **Clos**: endpoints attach to **leaf switches**, leaves uplink to **spine switches**, and optionally a **super-spine** tier closes a 3-tier Clos. Its cost behavior is controlled by per-tier α-β pairs and an oversubscription ratio that caps upper-tier bandwidth.
 
-**Per-tier characterization.** Each tier is described by four parameters: domain size $N_i$, per-hop latency $\alpha_i$, per-link BW $\mathrm{BW}_i$, and (for Clos tiers) oversubscription $s_i \geq 1$. The cost of any collective over the full $N = \prod_i N_i$ ranks is a composition of per-tier primitive costs — §2 derives the composition rules; this section anchors them on the Clos topology itself.
+**Per-tier characterization.** Each tier is described by four parameters: domain size $N_i$, per-hop latency $\alpha_i$, per-link BW $\mathrm{BW}\_i$, and (for Clos tiers) oversubscription $s_i \geq 1$. The cost of any collective over the full $N = \prod_i N_i$ ranks is a composition of per-tier primitive costs — §2 derives the composition rules; this section anchors them on the Clos topology itself.
 
 **Leaf-spine structure.** $N$ endpoints split across $L$ leaf switches ($N/L$ per leaf). Each leaf switch has two port populations:
 
@@ -67,13 +67,13 @@ Two-tier Clos (N = 16 endpoints; L = 4 leaves × S = 2 spines; s = 2):
                 → oversubscription s = 4 / 2 = 2 (defined below).
 ```
 
-**Cost anatomy.** Intra-leaf traffic traverses 2 link hops (endpoint → leaf → endpoint), at α ≈ a single-switch star (~0.5 μs on InfiniBand NDR class). Cross-leaf traffic traverses 4 hops (endpoint → leaf → spine → leaf → endpoint), at roughly 2× the α. Bandwidth is capped by the minimum of endpoint BW, leaf-uplink aggregate BW, and spine bisection.
+**Cost anatomy.** Intra-leaf traffic traverses 2 link hops (endpoint → leaf → endpoint), at α ≈ a single-switch star (~0.5 μs on InfiniBand NDR class). Cross-leaf traffic traverses 4 hops (endpoint → leaf → spine → leaf → endpoint), at roughly 2× the α. (The NVL72 + IB case studies below use end-to-end path values that include NIC serialization — $\alpha_{\mathrm{leaf}} \approx 2\\,\mu$s and $\alpha_{\mathrm{spine}} \approx 8\\,\mu$s, §1.2 — rather than this single-switch figure.) Bandwidth is capped by the minimum of endpoint BW, leaf-uplink aggregate BW, and spine bisection.
 
 **Oversubscription.** The oversubscription ratio at the leaf-to-spine boundary (same notion at any switch tier) is
 
-$$s \\;=\\; \frac{p_{\mathrm{down}}\cdot\mathrm{BW}_{\mathrm{down}}}{p_{\mathrm{up}}\cdot\mathrm{BW}_{\mathrm{up}}} \\;\geq\\; 1$$
+$$s \\;=\\; \frac{p_{\mathrm{down}}\cdot\mathrm{BW}\_{\mathrm{down}}}{p_{\mathrm{up}}\cdot\mathrm{BW}\_{\mathrm{up}}} \\;\geq\\; 1$$
 
-The special case $s = 1$ ($p_{\mathrm{up}}\cdot\mathrm{BW}_{\mathrm{up}} = p_{\mathrm{down}}\cdot\mathrm{BW}_{\mathrm{down}}$) is **full-bisection / non-blocking** — every endpoint can drive its full BW to any other endpoint through the spine without contention. NVIDIA Quantum-class InfiniBand pods are engineered this way by default; Ethernet leaf-spine pods are often full-bisection at the pod level. When full-bisection is too expensive, upper tiers are oversubscribed at $s = 2$, $s = 4$, etc. At $s = 4$ a leaf can receive $4\times$ more traffic from its endpoints than it can push to the spine: under uniform cross-leaf traffic each flow gets only $\mathrm{BW}/s$ northbound. The uplinks are the bottleneck, not the endpoint ports or the spines. The contention-coefficient model in `05_contention_and_congestion.md` captures this directly as $\eta_\beta \approx 1/s$ on upper-tier-crossing traffic — a 4:1 oversubscribed super-spine inflates cross-pod AR's BW term by 4×. **The α term is not inflated by $s$** — oversubscription is a BW knob, not a latency knob. §3.2 below reuses this $\eta_\beta$ hook when scoring hierarchical AR with realistic contention.
+The special case $s = 1$ ($p_{\mathrm{up}}\cdot\mathrm{BW}\_{\mathrm{up}} = p_{\mathrm{down}}\cdot\mathrm{BW}\_{\mathrm{down}}$) is **full-bisection / non-blocking** — every endpoint can drive its full BW to any other endpoint through the spine without contention. NVIDIA Quantum-class InfiniBand pods are engineered this way by default; Ethernet leaf-spine pods are often full-bisection at the pod level. When full-bisection is too expensive, upper tiers are oversubscribed at $s = 2$, $s = 4$, etc. At $s = 4$ a leaf can receive $4\times$ more traffic from its endpoints than it can push to the spine: under uniform cross-leaf traffic each flow gets only $\mathrm{BW}/s$ northbound. The uplinks are the bottleneck, not the endpoint ports or the spines. The contention-coefficient model in `05_contention_and_congestion.md` captures this directly as $\eta_\beta \approx 1/s$ on upper-tier-crossing traffic — a 4:1 oversubscribed super-spine inflates cross-pod AR's BW term by 4×. **The α term is not inflated by $s$** — oversubscription is a BW knob, not a latency knob. §3.2 below reuses this $\eta_\beta$ hook when scoring hierarchical AR with realistic contention.
 
 **Scaling to three tiers.** When a single spine tier's radix runs out, pods of leaf-spine hierarchies hang under a **super-spine** tier that routes cross-pod traffic. Diameter grows to 6 link hops (endpoint → leaf → spine → super-spine → spine → leaf → endpoint), the per-tier α-β story extends one layer, and each new boundary carries its own $s$:
 
@@ -89,9 +89,9 @@ The special case $s = 1$ ($p_{\mathrm{up}}\cdot\mathrm{BW}_{\mathrm{up}} = p_{\m
    [Endpoints]
 ```
 
-Production examples: large InfiniBand SuperPOD deployments (thousands of GPUs), Meta's research clusters, and most hyperscaler Ethernet scale-out fabrics. Further layering (4-tier or beyond) is rarely built — once a pod reaches super-spine scale, it's usually cheaper to add pods laterally than another vertical tier.
+Production examples: large InfiniBand SuperPOD deployments (thousands of GPUs) and most hyperscaler Ethernet scale-out fabrics. Further layering (4-tier or beyond) is rarely built — once a pod reaches super-spine scale, it's usually cheaper to add pods laterally than another vertical tier.
 
-**Naming: Clos vs fat-tree.** Historically distinct: **Clos** (Charles Clos, 1953) is the general multi-tier switched family, allowing any $s \geq 1$; **Leiserson fat-tree** [LEIS85] is a tree with link bandwidth growing toward the root. The modern datacenter realization — the **k-ary fat-tree** of [AL-FARES08] — is built from commodity $k$-port switches with $k/2$ up / $k/2$ down at every switch, yielding a Clos with $s = 1$ at every tier; Appendix B has the port-by-port build. Production AI fabrics (NVIDIA DGX SuperPOD [DGX-SUPERPOD], Meta's Research SuperCluster [META-RSC], hyperscaler Ethernet training pods) follow this structural pattern — tiered Clos with full bipartite at every tier boundary — but don't rigidly hit Al-Fares's exact port accounting: vendors mix switch radices across tiers, and the common design runs $s = 1$ at the intra-pod leaf-spine tier (for tight training locality within a Scalable Unit) while oversubscribing the super-spine between pods where cost dominates over bandwidth. In the rest of this note, **Clos** means the general multi-tier fabric at any $s$, and **fat-tree** is shorthand for the $s = 1$ k-ary variant when the non-blocking property matters — the usage aligns with production InfiniBand / Ethernet vendor literature.
+**Naming: Clos vs fat-tree.** Historically distinct: **Clos** (Charles Clos, 1953) is the general multi-tier switched family, allowing any $s \geq 1$; **Leiserson fat-tree** [LEIS85] is a tree with link bandwidth growing toward the root. The modern datacenter realization — the **k-ary fat-tree** of [AL-FARES08] — is built from commodity $k$-port switches with $k/2$ up / $k/2$ down at every edge and aggregation switch (core switches, at the top, are all-down), yielding a Clos with $s = 1$ at every tier; Appendix B has the port-by-port build. Production AI fabrics (NVIDIA DGX SuperPOD [DGX-SUPERPOD], Meta's Research SuperCluster [META-RSC], hyperscaler Ethernet training pods) follow this structural pattern — tiered Clos with full bipartite at every tier boundary — but don't rigidly hit Al-Fares's exact port accounting: vendors mix switch radices across tiers, and the common design runs $s = 1$ at the intra-pod leaf-spine tier (for tight training locality within a Scalable Unit) while oversubscribing the super-spine between pods where cost dominates over bandwidth. In the rest of this note, **Clos** means the general multi-tier fabric at any $s$, and **fat-tree** is shorthand for the $s = 1$ k-ary variant when the non-blocking property matters — the usage aligns with production InfiniBand / Ethernet vendor literature.
 
 ### 1.1 Case study: NVIDIA NVL72 SuperPOD
 
@@ -99,8 +99,8 @@ The NVL72 SuperPOD grounds the abstract Clos above in real hardware and surfaces
 
 **Two independent fabrics per GPU.** Every GPU in an NVL72 pod has two distinct egress paths:
 
-- **NVLink → NVSwitch (scale-up, intra-pod).** 72 GPUs per NVL72 pod on NVLink Gen5 at 1800 GB/s per GPU. Traffic stays within the pod — NVLink ports do not reach a NIC or ToR.
-- **PCIe → ConnectX NIC → IB ToR (scale-out, inter-pod).** One ConnectX-7 (NDR) or ConnectX-8 (XDR) NIC per GPU via PCIe Gen5 — 72 NICs per NVL72. NDR: 50 GB/s per NIC; XDR / Quantum-X800: 100 GB/s. NICs uplink to IB Quantum-2 / X800 ToR switches, which uplink to IB spines.
+- **NVLink → NVSwitch (scale-up, intra-pod).** 72 GPUs per NVL72 pod on NVLink Gen5 at 1800 GB/s per GPU (bidirectional aggregate; 900 GB/s per direction). Traffic stays within the pod — NVLink ports do not reach a NIC or ToR.
+- **PCIe → ConnectX NIC → IB ToR (scale-out, inter-pod).** One ConnectX-7 (NDR) or ConnectX-8 (XDR) NIC per GPU via PCIe Gen5 (ConnectX-7) / Gen6 (ConnectX-8) — 72 NICs per NVL72. NDR: 50 GB/s per NIC; XDR / Quantum-X800: 100 GB/s. NICs uplink to IB Quantum-2 / X800 ToR switches, which uplink to IB spines.
 
 NCCL routes intra-pod peers over NVLink and cross-pod peers over IB; the two fabrics never share a data path.
 
@@ -111,13 +111,13 @@ Two-fabric structure (one NVL72 pod, 72 GPUs):
       │                                             │
       │   ┌───────┐   NVLink   ┌─────────────┐      │
       │   │ GPU_0 │────────────│             │      │    ← scale-up (NVSwitch)
-      │   └───┬───┘            │  NVSwitch   │      │      NVLink Gen5: 1800 GB/s
-      │       │ PCIe           │   fabric    │      │      (72 GPUs per pod)
+      │   └───┬───┘            │  NVSwitch   │      │      NVLink Gen5: 1800 GB/s bidir.
+      │       │ PCIe           │   fabric    │      │      (900 GB/s per direction; 72 GPUs per pod)
       │   ┌───┴───┐            └─────────────┘      │
       │   │ NIC_0 │   (1 NIC per GPU — 72 total)    │
       │   └───┬───┘                                 │
       └───────┼─────────────────────────────────────┘
-              │   PCIe Gen5  →  ConnectX NIC  →  IB
+              │   PCIe Gen5/6  →  ConnectX NIC  →  IB
               ▼
       ┌─────────────┐           ┌─────────────┐
       │  IB ToR     │ ◄───────► │  IB Spine   │          ← scale-out Clos
@@ -126,16 +126,20 @@ Two-fabric structure (one NVL72 pod, 72 GPUs):
       └─────────────┘                                      NIC → ToR → Spine → ToR → NIC
 ```
 
+![Scale-up and scale-out network paths for one 4-GPU server](assets/scale_up_scale_out.svg)
+
+*Figure: the same two-fabric structure at single-tray granularity — NVLink-class scale-up (~900 GB/s per direction) below the GPUs, PCIe → NIC → ToR scale-out (~50–100 GB/s per NIC) above.*
+
 **Mapping to the abstract hierarchy.**
 
 | Abstract tier (used in §2) | NVL72 SuperPOD realization |
 |---|---|
-| **Innermost** (scale-up) | NVLink Gen5 within the pod, 72 GPUs, 1800 GB/s per GPU |
+| **Innermost** (scale-up) | NVLink Gen5 within the pod, 72 GPUs, 1800 GB/s per GPU bidirectional (900 GB/s per direction) |
 | Outer leaf | IB Quantum-2 / Quantum-X800 ToR |
 | Outer spine | IB Quantum-2 / Quantum-X800 spine |
-| Outer super-spine | Multi-pod deployments (>72 GPUs across multiple NVL72s) |
+| Outer super-spine | Only when a deployment outgrows one 2-tier leaf-spine fabric per rail (the $L = 32$, 2304-GPU cluster of Appendix A needs none) |
 
-**The common confusion — "leaf" ≠ "innermost tier."** In Clos literature, **leaf** is a position in the switched fabric — the *first* switch an endpoint hits. For NVL72 SuperPODs, that first switch is the IB ToR. But the *innermost tier of the overall hierarchy* is the NVSwitch/NVLink fabric, which sits **below** the NIC in the topology — intra-pod traffic never passes through the NIC or ToR at all. The IB ToR is the entry point of the *outer* tier, not the inside. The gap between the two tiers is large — roughly ~36× in per-GPU BW (1800 GB/s NVLink vs ~50 GB/s NDR) and several × in α (NVSwitch cut-through vs cross-pod IB path). §2 picks this up and shows how to compose collectives across tiers so that the fast inner fabric carries most of the work and the slow outer fabric is crossed as little as possible.
+**The common confusion — "leaf" ≠ "innermost tier."** In Clos literature, **leaf** is a position in the switched fabric — the *first* switch an endpoint hits. For NVL72 SuperPODs, that first switch is the IB ToR. But the *innermost tier of the overall hierarchy* is the NVSwitch/NVLink fabric, which sits **below** the NIC in the topology — intra-pod traffic never passes through the NIC or ToR at all. The IB ToR is the entry point of the *outer* tier, not the inside. The gap between the two tiers is large — roughly ~18× in per-GPU per-direction BW (900 GB/s NVLink vs ~50 GB/s NDR) and several × in α (NVSwitch cut-through vs cross-pod IB path). §2 picks this up and shows how to compose collectives across tiers so that the fast inner fabric carries most of the work and the slow outer fabric is crossed as little as possible.
 
 **How are 72 NICs actually wired to IB ToRs?** The two-fabric diagram above draws the IB ToR as a single box, which is a deliberate abstraction — the previous paragraphs care only about *which fabric* a packet uses (NVLink vs IB), not about how many ToRs the scale-out fabric has. But in real hardware, an NVL72's 72 NICs fan out to actual switches, and the choice of fan-out pattern determines port-count requirements, failure blast radius, and whether NCCL can exploit rail locality. Two layouts appear in production deployments.
 
@@ -165,7 +169,7 @@ A natural first guess: attach all 72 NICs to one ToR. For full bisection ($s = 1
                               ═══ IB spine fabric ═══
 ```
 
-Simple, but the entire NVL72 shares one failure domain, and one ToR per pod adds up fast at SU scale.
+Simple, but the entire NVL72 shares one failure domain (a single ToR), and no two pods ever share a ToR — every cross-pod path has to climb to the spine.
 
 **Layout 2 — Rail-optimized (NVIDIA SuperPOD reference [DGX-SUPERPOD]).** NICs at the same *position within a compute tray* across *different* NVL72 pods share one ToR. Each GB200 NVL72 compute tray holds 4 GPUs / 4 NICs, so each NIC goes to one of 4 rails. Every NVL72 is striped across 4 rail-ToRs, so any one ToR sees only 18 NICs per pod (one per tray), letting a 144-port X800 aggregate multiple pods on the same rail within one SU.
 
@@ -221,9 +225,9 @@ This is what makes "Same ToR" cross-pod traffic feasible: ToR_Z physically sees 
 
 - **Cross-pod, same rail, same ToR** — NVL72_X and NVL72_Y both attach their rail-i NICs to the same physical ToR_Z: **2 hops** (NIC → ToR_Z → NIC). The IB spine is not needed because one ToR bridges both pods. This applies when up to 4 NVL72s share a rail's ToR (144-port X800 at $s = 1$: 72 down ÷ 18 NICs/pod = 4 pods).
 - **Cross-pod, same rail, different ToRs** — once the rail spans more than 4 NVL72s, rail-i NICs spread across rail-i ToR_A and rail-i ToR_B: **4 hops** (NIC → ToR_A → IB spine → ToR_B → NIC). The spine is the only physical path between two same-rail ToRs.
-- **Cross-pod, cross-rail** — GPU_i on rail i in pod A ↔ GPU_j on rail j ≠ i in pod B: **NVLink rail bridge — 1 NVLink hop + 4 IB hops on rail j.** The 4 rail fabrics are physically disjoint at every tier (no IB cable connects rail-i switches to rail-j switches), so cross-rail does *not* go through any IB spine. Instead, the source first sends over NVLink intra-pod-A to a sibling GPU whose NIC lands on rail j, then that sibling uplinks normally on rail j (NIC → ToR_j → spine_j → ToR_j → NIC). Cross-rail pays one extra ~0.5 μs intra-pod NVLink hop on top of the destination rail's 4-hop IB cost.
+- **Cross-pod, cross-rail** — GPU_i on rail i in pod A ↔ GPU_j on rail j ≠ i in pod B: **NVLink rail bridge — 1 NVLink hop + the rail-j IB path (2 or 4 IB hops).** The 4 rail fabrics are physically disjoint at every tier (no IB cable connects rail-i switches to rail-j switches), so no IB path — not even one through a spine — crosses from rail i to rail j. Instead, the source first sends over NVLink intra-pod-A to a sibling GPU whose NIC lands on rail j, then that sibling uplinks normally on rail j, staying inside rail j's own fabric: 2 hops (NIC → ToR_j → NIC) when pods A and B share a rail-j ToR, 4 hops (NIC → ToR_j → spine_j → ToR_j′ → NIC) when they don't. Cross-rail pays one extra ~0.5 μs intra-pod NVLink hop on top of the same-rail IB cost for that pod pair.
 
-NCCL auto-detects rails and prefers same-rail peering for α-sensitive TP traffic [DGX-SUPERPOD] — a 2-hop same-rail path beats the 4-hop cross-rail one. This is why rail-optimized is the production norm despite using 4× more ToRs than pod-local.
+NCCL auto-detects rails and prefers same-rail peering for α-sensitive TP traffic [DGX-SUPERPOD] — a same-rail path skips the NVLink bridge hop, and for pods sharing a rail-ToR it skips the spine as well (2 IB hops, where the pod-local layout always needs 4). This is why rail-optimized is the production norm, even though a lone pod then touches 4 ToRs instead of 1; at SU scale the two layouts need the same number of ToRs (32 at $L = 32$), since each 144-port ToR hosts 72 NICs either way.
 
 **Bottom line on the 144-port ToR usage.** Both layouts use 144-port X800, but sized for different jobs:
 
@@ -258,10 +262,10 @@ Case studies plug in concrete values: §2.1's $L = 2$ walk-through uses $\alpha_
 
 | Symbol | Source | NVL72 + IB value |
 |---|---|---|
-| $\mathrm{BW}_{\mathrm{inner}}$ | NVLink Gen5 (per direction; 1800 GB/s bidirectional aggregate) | $\approx 900\\,\mathrm{GB/s}$ |
-| $\mathrm{BW}_{\mathrm{outer}}$ | ConnectX-7 NDR (ConnectX-8 XDR doubles to 100 GB/s) | $\approx 50\\,\mathrm{GB/s}$ |
+| $\mathrm{BW}\_{\mathrm{inner}}$ | NVLink Gen5 (per direction; 1800 GB/s bidirectional aggregate) | $\approx 900\\,\mathrm{GB/s}$ |
+| $\mathrm{BW}\_{\mathrm{outer}}$ | ConnectX-7 NDR (ConnectX-8 XDR doubles to 100 GB/s) | $\approx 50\\,\mathrm{GB/s}$ |
 
-In multi-tier formulas, $\mathrm{BW}_{\mathrm{bottleneck}} \approx \mathrm{BW}_{\mathrm{outer}}$ once any cross-pod traffic is involved.
+In multi-tier formulas each phase's BW term uses its own tier's BW — inner phases at $\mathrm{BW}\_{\mathrm{inner}}$, outer phases at $\mathrm{BW}\_{\mathrm{outer}}$ (§2.1). The outer tier is ~18× slower per byte, which is why hierarchical schedules shrink the payload before it crosses.
 
 *Shape parameters.* $N$ = total ranks; $L$ = number of pods; $N_{\mathrm{inner}} = N/L$ = GPUs per pod (= 72 on NVL72); $p$ = pods sharing a rail-ToR ($\leq 4$ at $s = 1$).
 
@@ -275,14 +279,14 @@ These symbols carry through §2 unchanged.
 
 **Why this re-expression is possible (and necessary).** Two reasons.
 
-1. **Tiers are heterogeneous.** An intra-pod hop costs ~0.5 μs at ~900 GB/s on NVSwitch while a cross-pod hop costs 2–8 μs at ~50 GB/s on InfiniBand. A flat schedule that treats the Clos as one big star pays $\log N \cdot \alpha_{\mathrm{spine}}$ on every algorithmic hop and $2(N-1)/N \cdot M/\mathrm{BW}_{\mathrm{outer}}$ on every byte — wasting the fast intra-pod fabric entirely. Decomposing across tiers lets each tier pay only its own α on its own phase, and lets the outer tier carry a shrunk payload rather than the full $M$.
+1. **Tiers are heterogeneous.** An intra-pod hop costs ~0.5 μs at ~900 GB/s on NVSwitch while a cross-pod hop costs 2–8 μs at ~50 GB/s on InfiniBand. A flat schedule that treats the Clos as one big star pays $\log N \cdot \alpha_{\mathrm{spine}}$ on every algorithmic hop and $2(N-1)/N \cdot M/\mathrm{BW}\_{\mathrm{outer}}$ on every byte — wasting the fast intra-pod fabric entirely. Decomposing across tiers lets each tier pay only its own α on its own phase, and lets the outer tier carry a shrunk payload rather than the full $M$.
 2. **The collective's algebraic structure allows it.** Reduction is associative — reducing locally first then globally gives the same answer as reducing in one flat pass. Broadcast is replication — copying locally then globally is equivalent to one flat copy. These are the structural hooks that let the single-tier collective be factored into a multi-phase schedule. Each of AR, AG, RS, BC, Reduce has such a factoring; the specific phase pattern differs (§2.1 tabulates all five).
 
 **Two design levers in every hierarchical schedule.** Once you accept that a single-tier collective can be re-expressed as a cross-tier combination, the schedule has two knobs: *which primitive runs on which tier*, and *how much payload crosses each tier boundary*. The canonical AR pattern (RS → sub-AR → AG) uses both: it puts the bulk of the α-hops on the fast inner tier and shrinks the payload from $M$ to $ML/N$ before any byte crosses the slow outer tier. §2.1 develops this pattern for AR and shows how AG, RS, BC, Reduce fall out as halves or trivial cascades of it.
 
 **The exception: A2A.** Not every collective has the algebraic structure to decompose. All-to-all has no associativity or replication hook — every source-destination pair carries a distinct payload, so the cross-tier permutation traffic equals the full $(N-1)/N \cdot M$ bytes regardless of how the schedule is phased. §2.2 works through why A2A doesn't decompose and how its cost formula becomes a destination-weighted sum over distance classes rather than a phased pipeline.
 
-The cost formulas below use the symbols defined in §1.2 — $\alpha_{\mathrm{inner}}$, $\alpha_{\mathrm{leaf}}$, $\alpha_{\mathrm{spine}}$, $\mathrm{BW}_{\mathrm{inner}}$, $\mathrm{BW}_{\mathrm{outer}}$, plus the shape parameters $N$, $L$, $N_{\mathrm{inner}}$, $p$. Refer back to that table for concrete NVL72 + IB values when plugging numbers in.
+The cost formulas below use the symbols defined in §1.2 — $\alpha_{\mathrm{inner}}$, $\alpha_{\mathrm{leaf}}$, $\alpha_{\mathrm{spine}}$, $\mathrm{BW}\_{\mathrm{inner}}$, $\mathrm{BW}\_{\mathrm{outer}}$, plus the shape parameters $N$, $L$, $N_{\mathrm{inner}}$, $p$. Refer back to that table for concrete NVL72 + IB values when plugging numbers in.
 
 ### 2.1 The RS → sub-AR → AG pattern
 
@@ -345,79 +349,81 @@ $$t_{\mathrm{AR}} \\;=\\; t_{\mathrm{RS,inner}}\\!\left(\tfrac{N}{L}, M\right) \
 
 Each term instantiates the primitive cost formulas from `01_collective_algorithms.md` / `02_topology_mapping.md` with the matching tier's $(\alpha, \mathrm{BW})$. For $k > 2$ tiers, the outer AR term is itself hierarchical — recursion down the tree until the innermost tier is reached.
 
-**Inner-tier cost in composed deployments.** When the Clos leaf port attaches a whole scale-up pod (e.g., an NVL72 with 72 GPUs behind one NVSwitch) rather than a single GPU, the "inner tier" in the hierarchical schedule *is* that scale-up fabric: $t_{\mathrm{RS,inner}}$ and $t_{\mathrm{AG,inner}}$ instantiate the star (or torus, or mesh) cost from `02_topology_mapping.md §5.1` at the pod's $(\alpha_{\mathrm{inner}}, \mathrm{BW}_{\mathrm{inner}})$; the outer AR phase instantiates the Clos AR at $(\alpha_{\mathrm{outer}}, \mathrm{BW}_{\mathrm{outer}})$, where $\alpha_{\mathrm{outer}}$ resolves to $\alpha_{\mathrm{leaf}}$, $\alpha_{\mathrm{spine}}$, or a mix per the §1.2 catalog. **Intra-pod α-β cost is part of the hierarchical total by construction — not an overhead layered on top.** The same holds for AG, RS, BC, Reduce: each row of the summary table below evaluates its `inner` term at the scale-up fabric's cost.
+**Inner-tier cost in composed deployments.** When the Clos leaf port attaches a whole scale-up pod (e.g., an NVL72 with 72 GPUs behind one NVSwitch) rather than a single GPU, the "inner tier" in the hierarchical schedule *is* that scale-up fabric: $t_{\mathrm{RS,inner}}$ and $t_{\mathrm{AG,inner}}$ instantiate the star (or torus, or mesh) cost from `02_topology_mapping.md §5.1` at the pod's $(\alpha_{\mathrm{inner}}, \mathrm{BW}\_{\mathrm{inner}})$; the outer AR phase instantiates the Clos AR at $(\alpha_{\mathrm{outer}}, \mathrm{BW}\_{\mathrm{outer}})$, where $\alpha_{\mathrm{outer}}$ resolves to $\alpha_{\mathrm{leaf}}$, $\alpha_{\mathrm{spine}}$, or a mix per the §1.2 catalog. **Intra-pod α-β cost is part of the hierarchical total by construction — not an overhead layered on top.** The same holds for AG, RS, BC, Reduce: each row of the summary table below evaluates its `inner` term at the scale-up fabric's cost.
 
 **The $\alpha$ and BW structure.** For 2-tier with ring-on-ring:
 
-$$t_{\mathrm{AR}}^{\mathrm{2\text{-}tier}} \approx 2\\!\left(\tfrac{N}{L} - 1\right)\alpha_{\mathrm{inner}} + 2(L-1)\alpha_{\mathrm{outer}} + \frac{2(N-1)}{N}\cdot\frac{M}{\mathrm{BW}_{\mathrm{bottleneck}}}$$
+$$t_{\mathrm{AR}}^{\mathrm{2\text{-}tier}} \\;=\\; 2\\!\left(\tfrac{N}{L} - 1\right)\alpha_{\mathrm{inner}} + 2(L-1)\\,\alpha_{\mathrm{outer}} + \frac{2(N-L)}{N}\cdot\frac{M}{\mathrm{BW}\_{\mathrm{inner}}} + \frac{2(L-1)}{N}\cdot\frac{M}{\mathrm{BW}\_{\mathrm{outer}}}$$
 
-where $\mathrm{BW}_{\mathrm{bottleneck}} = \min(\mathrm{BW}_{\mathrm{inner}}, \mathrm{BW}_{\mathrm{outer}} \cdot N/(L \cdot \text{cross-tier share}))$ accounts for the lower-throughput tier dominating BW. In practice $\mathrm{BW}_{\mathrm{outer}} \ll \mathrm{BW}_{\mathrm{inner}}$ (IB at 50 GB/s vs NVLink at 900 GB/s), so $\mathrm{BW}_{\mathrm{bottleneck}} \approx \mathrm{BW}_{\mathrm{outer}}$ once the outer tier participates.
+Each tier's BW term is priced at its own BW: the inner RS + AG pair moves $2(N/L - 1)/(N/L) = 2(N-L)/N$ of $M$ at $\mathrm{BW}\_{\mathrm{inner}}$, and the outer ring AR moves $2(L-1)/L$ of the telescoped $ML/N$ payload — $2(L-1)/N$ of $M$ — at $\mathrm{BW}\_{\mathrm{outer}}$. With equal BWs the two coefficients sum back to the flat ring's $2(N-1)/N$. In practice $\mathrm{BW}\_{\mathrm{outer}} \ll \mathrm{BW}\_{\mathrm{inner}}$ (IB at 50 GB/s vs NVLink at 900 GB/s, an 18× gap), but telescoping shrinks the outer coefficient by more than that at small $L$ — the BW term stays inner-dominated until $(L-1)\cdot\mathrm{BW}\_{\mathrm{inner}}/\mathrm{BW}\_{\mathrm{outer}}$ becomes comparable to $N - L$ (with 72-GPU pods, $N = 72L$, the outer share never exceeds $18/71 \approx 25\\%$ of the inner term).
 
-**AG, RS, BC, Reduce drop out.** The three-phase pattern above already contains AG and RS as its two halves: standalone **AG** runs inner AG → outer AG (phase 3 logic only, no reduction); standalone **RS** runs outer RS → inner RS (phase 1 logic, time-reverse). **BC** and **Reduce** cascade trivially across tiers — no reduction to amortize. The full summary:
+**AG, RS, BC, Reduce drop out.** The three-phase pattern above already contains RS and AG as its two halves — AR ≡ inner RS → [outer RS → outer AG] → inner AG, where the bracket is the outer sub-AR. Standalone **RS** is the first half: inner RS → outer RS (phase 1, then the reduce half of phase 2). Standalone **AG** is the second half: outer AG → inner AG (the gather half of phase 2, then phase 3, no reduction). In both, the outer tier touches only the telescoped $ML/N$-byte payload — RS shrinks the data *before* it crosses the slow tier, AG crosses *before* it expands. (The opposite orders — outer RS first, or inner AG first — compute the same result but push $(L-1)/L$ of the full $M$ across the slow tier.) **BC** and **Reduce** cascade trivially across tiers — no reduction to amortize. The full summary:
 
 | Primitive | 2-tier composition | α term | BW term (at $s=1$, uniform BW) |
 |---|---|---|---|
 | **AR** | inner RS → outer AR → inner AG | $2(N/L - 1)\alpha_{\mathrm{inner}} + 2(L - 1)\alpha_{\mathrm{outer}}$ | $2(N-1)/N \cdot M/\mathrm{BW}$ |
-| **AG** | inner AG → outer AG | $(N/L - 1)\alpha_{\mathrm{inner}} + (L - 1)\alpha_{\mathrm{outer}}$ | $(N-1)/N \cdot M/\mathrm{BW}$ |
-| **RS** | outer RS → inner RS | $(L - 1)\alpha_{\mathrm{outer}} + (N/L - 1)\alpha_{\mathrm{inner}}$ | $(N-1)/N \cdot M/\mathrm{BW}$ |
+| **AG** | outer AG → inner AG | $(L - 1)\alpha_{\mathrm{outer}} + (N/L - 1)\alpha_{\mathrm{inner}}$ | $(N-1)/N \cdot M/\mathrm{BW}$ |
+| **RS** | inner RS → outer RS | $(N/L - 1)\alpha_{\mathrm{inner}} + (L - 1)\alpha_{\mathrm{outer}}$ | $(N-1)/N \cdot M/\mathrm{BW}$ |
 | **BC** | outer BC → inner BC | $\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} + \lceil\log_2(N/L)\rceil\\,\alpha_{\mathrm{inner}}$ | $M/\mathrm{BW}$ (pipelined) |
 | **Reduce** | inner Reduce → outer Reduce | $\lceil\log_2(N/L)\rceil\\,\alpha_{\mathrm{inner}} + \lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}}$ | $M/\mathrm{BW}$ (pipelined) |
 
 (Plug in $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{leaf}}$ for small deployments where pods share a rail-ToR, $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{spine}}$ for production deployments spanning multiple rail-ToRs, or a weighted mix when the schedule has both same-ToR and spine-traversing hops; see §1.2.)
 
-For oversubscription $s > 1$ at any tier boundary, multiply the BW term by $s$ on traffic crossing that boundary — equivalent to $\eta_\beta \approx 1/s$ in `05_contention_and_congestion.md` §4.2. AG and RS cost **half of AR** on both α (one pass, not two) and BW (one RS-style telescoping, not the doubled AR round-trip); BC and Reduce stay at the $M/\mathrm{BW}$ pipelined ceiling regardless of tier count, with α scaling log-depth on each tier.
+With distinct tier BWs the AG / RS BW term splits the same way as AR's, at half the size: $\frac{N-L}{N}\cdot\frac{M}{\mathrm{BW}\_{\mathrm{inner}}} + \frac{L-1}{N}\cdot\frac{M}{\mathrm{BW}\_{\mathrm{outer}}}$. In the argument form of the AR cost formula above (group size, per-rank payload), $t_{\mathrm{AG}} = t_{\mathrm{AG,outer}}(L, \tfrac{ML}{N}) + t_{\mathrm{AG,inner}}(\tfrac{N}{L}, M)$ and $t_{\mathrm{RS}} = t_{\mathrm{RS,inner}}(\tfrac{N}{L}, M) + t_{\mathrm{RS,outer}}(L, \tfrac{ML}{N})$.
 
-**Case study: NVL72 + IB SuperPOD (AR).** Using the shared terminology values, take a 2-pod deployment ($L = 2$, $N = 144$, $M = 16\\,\mathrm{MB}$, ring-on-ring schedule). At this scale the two pods share a rail-ToR ($p = 2$, well within the $p \leq 4$ budget), so $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{leaf}} \approx 2\\,\mu$s for the outer phase:
+For oversubscription $s > 1$ at any tier boundary, multiply the BW term by $s$ on traffic crossing that boundary — equivalent to $\eta_\beta \approx 1/s$ in `05_contention_and_congestion.md` §4.2. AG and RS cost **half of AR** on both α (one pass, not two) and BW (one telescoped pass, not the doubled AR round-trip); BC and Reduce stay at the $M/\mathrm{BW}$ pipelined ceiling regardless of tier count, with α scaling log-depth on each tier.
 
-- **Inner RS** (ring on 72 GPUs over NVSwitch): $(N_{\mathrm{inner}}-1)\\,\alpha_{\mathrm{inner}} = 71 \cdot 0.5 = \mathbf{35.5\\,\mu s}$ α; $\frac{71}{72}\cdot\frac{M}{\mathrm{BW}_{\mathrm{inner}}} \approx \mathbf{17.5\\,\mu s}$ BW.
-- **Outer sub-AR** (ring on 2 pods through the shared rail-ToR): payload has telescoped to $ML/N = 0.22\\,\mathrm{MB}$; $2(L-1)\\,\alpha_{\mathrm{outer}} = 2 \cdot 1 \cdot 2 = \mathbf{4\\,\mu s}$ α + $\frac{2(L-1)}{L}\cdot\frac{ML/N}{\mathrm{BW}_{\mathrm{outer}}} \approx \mathbf{4.4\\,\mu s}$ BW.
+**Case study: NVL72 + IB SuperPOD (AR).** Using the §1.2 symbol values, take a 2-pod deployment ($L = 2$, $N = 144$, $M = 16\\,\mathrm{MB}$, ring-on-ring schedule). At this scale the two pods share a rail-ToR ($p = 2$, well within the $p \leq 4$ budget), so $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{leaf}} \approx 2\\,\mu$s for the outer phase:
+
+- **Inner RS** (ring on 72 GPUs over NVSwitch): $(N_{\mathrm{inner}}-1)\\,\alpha_{\mathrm{inner}} = 71 \cdot 0.5 = \mathbf{35.5\\,\mu s}$ α; $\frac{71}{72}\cdot\frac{M}{\mathrm{BW}\_{\mathrm{inner}}} \approx \mathbf{17.5\\,\mu s}$ BW.
+- **Outer sub-AR** (ring on 2 pods through the shared rail-ToR): payload has telescoped to $ML/N = 0.22\\,\mathrm{MB}$; $2(L-1)\\,\alpha_{\mathrm{outer}} = 2 \cdot 1 \cdot 2 = \mathbf{4\\,\mu s}$ α + $\frac{2(L-1)}{L}\cdot\frac{ML/N}{\mathrm{BW}\_{\mathrm{outer}}} \approx \mathbf{4.4\\,\mu s}$ BW.
 - **Inner AG**: mirrors inner RS — **35.5 μs α + 17.5 μs BW**.
 
-**Hierarchical total: ≈ 75 μs α + 39 μs BW ≈ 114 μs.**
+**Hierarchical total: ≈ 75 μs α + 39.5 μs BW ≈ 114.5 μs.**
 
 How does this compare to two hypothetical flat-ring baselines at the same $N = 144$?
 
 | Schedule (all at $N = 144$, $M = 16\\,\mathrm{MB}$) | α (μs) | BW (μs) | **Total** |
 |---|---|---|---|
-| Flat ring on a hypothetical 144-GPU NVSwitch domain (NVLink doesn't actually span pods, but assume it could): $2(N-1)\\,\alpha_{\mathrm{inner}} + 2(N-1)/N \cdot M/\mathrm{BW}_{\mathrm{inner}}$ | 143 | 35 | **~178** |
-| **Hierarchical NVLink + IB** (this case study) | **75** | **39** | **~114** |
-| Flat ring forced over IB only (ignore NVLink): $2(N-1)\\,\alpha_{\mathrm{spine}} + 2(N-1)/N \cdot M/\mathrm{BW}_{\mathrm{outer}}$ | 2,288 | 636 | **~2,920** |
+| Flat ring on a hypothetical 144-GPU NVSwitch domain (NVLink doesn't actually span pods, but assume it could): $2(N-1)\\,\alpha_{\mathrm{inner}} + 2(N-1)/N \cdot M/\mathrm{BW}\_{\mathrm{inner}}$ | 143 | 35 | **~178** |
+| **Hierarchical NVLink + IB** (this case study) | **75** | **39.5** | **~114.5** |
+| Flat ring forced over IB only (ignore NVLink): $2(N-1)\\,\alpha_{\mathrm{spine}} + 2(N-1)/N \cdot M/\mathrm{BW}\_{\mathrm{outer}}$ | 2,288 | 636 | **~2,920** |
 
 Two takeaways:
 
-1. **Hierarchical beats flat-NVSwitch (114 vs 178 μs) even on the same fast fabric.** The α saving comes from running $N/L$ parallel inner rings of length $N/L - 1$ instead of one ring of length $N - 1$. The α formula goes from $2(N-1)\\,\alpha$ to $2(N/L - 1)\\,\alpha + 2(L - 1)\\,\alpha_{\mathrm{outer}}$ — at $L = 2$ this is $286\alpha \to 144\alpha$ on a uniform-α basis, a ~50% reduction *before* the outer tier even gets involved. The "shorter parallel rings" effect; optimal $L \approx \sqrt{N}$ gives roughly $\sqrt{N}$ speedup on the α term.
-2. **Hierarchical beats flat-IB by ~26×, almost entirely on α**, because 71 of the 75 μs of α work runs on NVSwitch at $\alpha_{\mathrm{inner}} = 0.5\\,\mu$s instead of on IB at $\alpha_{\mathrm{spine}} = 8\\,\mu$s, *and* payload telescoping cuts what crosses the outer tier from $M$ down to $M/72$.
+1. **Hierarchical beats flat-NVSwitch (114 vs 178 μs) even on the same fast fabric.** The α saving comes from running $L$ parallel inner rings of $N/L$ ranks each ($N/L - 1$ steps) instead of one ring of $N$ ranks ($N - 1$ steps). The α formula goes from $2(N-1)\\,\alpha$ to $2(N/L - 1)\\,\alpha + 2(L - 1)\\,\alpha_{\mathrm{outer}}$ — at $L = 2$ this is $286\alpha \to 144\alpha$ on a uniform-α basis, a ~50% reduction *before* the outer tier even gets involved. The "shorter parallel rings" effect; at the uniform-α optimum $L \approx \sqrt{N}$ the count drops to $4(\sqrt{N} - 1)$, roughly a $\sqrt{N}/2$ speedup on the α term.
+2. **Hierarchical beats flat-IB by ~26×, mostly on α** (about four-fifths of the saving), because 71 of the 75 μs of α work runs on NVSwitch at $\alpha_{\mathrm{inner}} = 0.5\\,\mu$s instead of on IB at $\alpha_{\mathrm{spine}} = 8\\,\mu$s, *and* payload telescoping cuts what crosses the outer tier from $M$ down to $M/72$.
 
-So hierarchical wins on two distinct axes: shorter parallel inner rings (works on any fabric, beats flat-NVSwitch) plus payload telescoping when the outer tier is slower (turns the IB-side BW from 636 μs into 4.4 μs). At production scale ($L = 32$, pods spanning multiple rail-ToRs so $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{spine}}$), the gap to flat baselines widens further, and SHARP on the spine (§3.1) collapses the outer α to $\sim 2\alpha_{\mathrm{switch}}$.
+So hierarchical wins on two distinct axes: shorter parallel inner rings (works on any fabric, beats flat-NVSwitch) plus payload telescoping when the outer tier is slower (turns the IB-side BW from 636 μs into 4.4 μs). At production scale ($L = 32$, pods spanning multiple rail-ToRs so $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{spine}}$), the gap to flat baselines widens further, and SHARP on the outer Clos (§3.1) collapses the outer α to $\sim 2k\\,\alpha_{\mathrm{switch}}$ ($k = 2$ switch tiers, leaf + spine).
 
 ### 2.2 A2A on hierarchies — the outlier
 
-A2A is the one primitive where hierarchical composition doesn't help. No reduction or replication semantics to exploit across tiers — every source-destination pair carries a distinct payload, and the cross-tier permutation traffic equals the full $(N-1) \cdot (1 - 1/N) \cdot M$ bytes regardless of schedule. The BW bound is the **outermost tier's bisection**; no hierarchical schedule can beat it. If the outer tier is oversubscribed at $s$ or has per-leaf BW below per-endpoint BW, A2A realized BW drops by the full factor. Unlike §2.1, A2A's cost itemizes per destination — each pairwise send pays its destination's *actual* path latency rather than an average — so all three α values from the §2 shared terminology ($\alpha_{\mathrm{inner}}$, $\alpha_{\mathrm{leaf}}$, $\alpha_{\mathrm{spine}}$) appear simultaneously in its cost formula.
+A2A is the one primitive where hierarchical composition doesn't help. No reduction or replication semantics to exploit across tiers — every source-destination pair carries a distinct payload, and each rank still ships its full $(N-1)/N \cdot M$ bytes of permutation traffic regardless of schedule, $(1 - 1/L) \cdot M$ of it across the tier boundary. The BW bound is the **outermost tier's bisection**; no hierarchical schedule can beat it. If the outer tier is oversubscribed at $s$ or has per-leaf BW below per-endpoint BW, A2A realized BW drops by the full factor. Unlike §2.1, A2A's cost itemizes per destination — each pairwise send pays its destination's *actual* path latency rather than an average — so all three α values from §1.2 ($\alpha_{\mathrm{inner}}$, $\alpha_{\mathrm{leaf}}$, $\alpha_{\mathrm{spine}}$) appear simultaneously in its cost formula.
 
 **Cost formula.** Implementations ship as pairwise direct-send: each rank serializes $N{-}1$ outgoing messages of size $M/N$ through its outbound port. Each send pays its destination's actual path cost ($\alpha + (M/N)/\mathrm{BW}$); the total is a destination-weighted sum. In a real NVL72 + IB SuperPOD, peers split across **three** distance classes (counts shown for $L$ pods total, $p$ pods sharing a rail-ToR, $N_{\mathrm{inner}}$ GPUs per pod):
 
 | Peer count | Destination class | Path α | Path BW |
 |---|---|---|---|
-| $N_{\mathrm{inner}} - 1$ | Intra-pod (NVSwitch scale-up) | $\alpha_{\mathrm{inner}}$ | $\mathrm{BW}_{\mathrm{inner}}$ |
-| $(p - 1)\\,N_{\mathrm{inner}}$ | Same-leaf cross-pod (through shared rail-ToR) | $\alpha_{\mathrm{leaf}}$ | $\mathrm{BW}_{\mathrm{outer}}$ |
-| $(L - p)\\,N_{\mathrm{inner}}$ | Cross-leaf cross-pod (through IB spine) | $\alpha_{\mathrm{spine}}$ | $\mathrm{BW}_{\mathrm{outer}}$ |
+| $N_{\mathrm{inner}} - 1$ | Intra-pod (NVSwitch scale-up) | $\alpha_{\mathrm{inner}}$ | $\mathrm{BW}\_{\mathrm{inner}}$ |
+| $(p - 1)\\,N_{\mathrm{inner}}$ | Same-leaf cross-pod (through shared rail-ToR) | $\alpha_{\mathrm{leaf}}$ | $\mathrm{BW}\_{\mathrm{outer}}$ |
+| $(L - p)\\,N_{\mathrm{inner}}$ | Cross-leaf cross-pod (through IB spine) | $\alpha_{\mathrm{spine}}$ | $\mathrm{BW}\_{\mathrm{outer}}$ |
 
 The α and BW terms separate out as:
 
 $$t_\alpha^{\mathrm{A2A}} \\;=\\; (N_{\mathrm{inner}} - 1)\\,\alpha_{\mathrm{inner}} \\;+\\; (p - 1)\\,N_{\mathrm{inner}}\\,\alpha_{\mathrm{leaf}} \\;+\\; (L - p)\\,N_{\mathrm{inner}}\\,\alpha_{\mathrm{spine}}$$
 
-$$t_{\mathrm{BW}}^{\mathrm{A2A}} \\;=\\; (N_{\mathrm{inner}} - 1)\\,\frac{M/N}{\mathrm{BW}_{\mathrm{inner}}} \\;+\\; (N - N_{\mathrm{inner}})\\,\frac{M/N}{\mathrm{BW}_{\mathrm{outer}}} \cdot s$$
+$$t_{\mathrm{BW}}^{\mathrm{A2A}} \\;=\\; (N_{\mathrm{inner}} - 1)\\,\frac{M/N}{\mathrm{BW}\_{\mathrm{inner}}} \\;+\\; (N - N_{\mathrm{inner}})\\,\frac{M/N}{\mathrm{BW}\_{\mathrm{outer}}} \cdot s$$
 
-Intra-pod α contributes as a summand over same-pod peers — **not a literal "intra-pod A2A added on top of cross-pod A2A,"** but a single $N{-}1$-send schedule split by destination class. The inner tier's high BW only helps on the $N_{\mathrm{inner}} - 1$ intra-pod sends; the rest pays $\mathrm{BW}_{\mathrm{outer}}$, slowed further by any outer-tier oversubscription $s$.
+Intra-pod α contributes as a summand over same-pod peers — **not a literal "intra-pod A2A added on top of cross-pod A2A,"** but a single $N{-}1$-send schedule split by destination class. The inner tier's high BW only helps on the $N_{\mathrm{inner}} - 1$ intra-pod sends; the rest pays $\mathrm{BW}\_{\mathrm{outer}}$, slowed further by any outer-tier oversubscription $s$.
 
 **Worst case** (all peers cross-leaf, e.g., MoE EP spread across the full SU): $t_\alpha \to (N{-}1)\\,\alpha_{\mathrm{spine}}$ — the dominant scenario at production scale. **Best case** (all peers same-pod): $t_\alpha \to (N{-}1)\\,\alpha_{\mathrm{inner}}$ — only feasible when $N \leq N_{\mathrm{inner}} = 72$.
 
-**Single-GPU endpoint Clos** (the simpler abstract case where each leaf-ToR port holds one GPU, no scale-up pods). The intra-pod term drops out and the formula reduces to $t_\alpha = (N/L - 1)\\,\alpha_{\mathrm{leaf}} + (N - N/L)\\,\alpha_{\mathrm{spine}}$ where $L$ counts leaf-ToRs and $N/L$ counts GPUs per leaf-ToR. BW = $(N{-}1)/N \cdot M/\mathrm{BW}_{\mathrm{outer}} \cdot s$, uniform across all sends.
+**Single-GPU endpoint Clos** (the simpler abstract case where each leaf-ToR port holds one GPU, no scale-up pods). The intra-pod term drops out and the formula reduces to $t_\alpha = (N/L - 1)\\,\alpha_{\mathrm{leaf}} + (N - N/L)\\,\alpha_{\mathrm{spine}}$ where $L$ counts leaf-ToRs and $N/L$ counts GPUs per leaf-ToR. BW = $(N{-}1)/N \cdot M/\mathrm{BW}\_{\mathrm{outer}} \cdot s$, uniform across all sends.
 
-**Case study: NVL72 + IB SuperPOD (A2A).** Using the shared terminology values, take the same $L = 2$ pods sharing rail-ToRs as the §2.1 case study ($p = 2$, $N = 144$, $M = 16\\,\mathrm{MB}$, so $M/N \approx 0.111\\,\mathrm{MB}$). A2A's per-destination accounting splits the $N-1 = 143$ peers into two distance classes here (no $\alpha_{\mathrm{spine}}$ peers because $p = L$). Each rank serializes 143 pairwise sends:
+**Case study: NVL72 + IB SuperPOD (A2A).** Using the §1.2 symbol values, take the same $L = 2$ pods sharing rail-ToRs as the §2.1 case study ($p = 2$, $N = 144$, $M = 16\\,\mathrm{MB}$, so $M/N \approx 0.111\\,\mathrm{MB}$). A2A's per-destination accounting splits the $N-1 = 143$ peers into two distance classes here (no $\alpha_{\mathrm{spine}}$ peers because $p = L$). Each rank serializes 143 pairwise sends:
 
-- **71 intra-pod sends** over NVLink: $71 \cdot \\!\bigl(\alpha_{\mathrm{inner}} + (M/N)/\mathrm{BW}_{\mathrm{inner}}\bigr) = 71 \cdot (0.5 + 0.12)\\,\mu$s ≈ **44 μs**.
-- **72 same-leaf cross-pod sends** over IB through shared ToR: $72 \cdot \\!\bigl(\alpha_{\mathrm{leaf}} + (M/N)/\mathrm{BW}_{\mathrm{outer}}\bigr) = 72 \cdot (2 + 2.2)\\,\mu$s ≈ **304 μs**.
+- **71 intra-pod sends** over NVLink: $71 \cdot \\!\bigl(\alpha_{\mathrm{inner}} + (M/N)/\mathrm{BW}\_{\mathrm{inner}}\bigr) = 71 \cdot (0.5 + 0.12)\\,\mu$s ≈ **44 μs**.
+- **72 same-leaf cross-pod sends** over IB through shared ToR: $72 \cdot \\!\bigl(\alpha_{\mathrm{leaf}} + (M/N)/\mathrm{BW}\_{\mathrm{outer}}\bigr) = 72 \cdot (2 + 2.2)\\,\mu$s ≈ **304 μs**.
 
 **Hierarchical A2A total ≈ 348 μs.**
 
@@ -425,21 +431,21 @@ How does this compare to flat-A2A baselines at the same $N = 144$?
 
 | Schedule ($N = 144$, $M = 16\\,\mathrm{MB}$) | α (μs) | BW (μs) | **Total** |
 |---|---|---|---|
-| Flat A2A on hypothetical 144-GPU NVSwitch (NVLink can't actually span pods): $(N{-}1)\\,\alpha_{\mathrm{inner}} + (N{-}1)\\,(M/N)/\mathrm{BW}_{\mathrm{inner}}$ | 71.5 | 17.6 | **~89** |
+| Flat A2A on hypothetical 144-GPU NVSwitch (NVLink can't actually span pods): $(N{-}1)\\,\alpha_{\mathrm{inner}} + (N{-}1)\\,(M/N)/\mathrm{BW}\_{\mathrm{inner}}$ | 71.5 | 17.6 | **~89** |
 | **Hierarchical A2A on NVL72 + IB at $L=2$ same rail-ToR** (this case study) | 179 | 169 | **~348** |
 | Hierarchical A2A on NVL72 + IB at $L=2$ *different* rail-ToRs (spine traversal): $\alpha_{\mathrm{leaf}}$ replaced by $\alpha_{\mathrm{spine}}$ for cross-pod sends | 611 | 169 | **~780** |
-| Flat A2A on IB only (no NVLink, every peer via spine): $(N{-}1)\\,\alpha_{\mathrm{spine}} + (N{-}1)\\,(M/N)/\mathrm{BW}_{\mathrm{outer}}$ | 1,144 | 318 | **~1,460** |
+| Flat A2A on IB only (no NVLink, every peer via spine): $(N{-}1)\\,\alpha_{\mathrm{spine}} + (N{-}1)\\,(M/N)/\mathrm{BW}\_{\mathrm{outer}}$ | 1,144 | 318 | **~1,460** |
 
 **Lesson: don't pull A2A out of the inner domain.** Unlike AR, A2A loses every time it crosses a tier boundary. AR's hierarchical decomposition saves on both α (parallel inner rings) and BW (payload telescoping); A2A has *neither* lever — every send carries a distinct payload (no reduction to amortize, no telescoping), and serial pairwise sends pay full α per cross-pod hop (no shorter-rings shortcut). On the same $N = 144$, flat-NVSwitch A2A (89 μs) is **~4× faster** than the same-ToR hierarchical version (348 μs) and **~9× faster** than the cross-ToR variant (780 μs).
 
-This is why MoE expert parallelism placement on the inner-most fabric (NVL72 NVSwitch within a single pod) is the production rule whenever it fits. NCCL's same-rail / same-ToR preference for A2A-heavy traffic mitigates the penalty when EP must span pods, but no scheduling trick recovers the full intra-pod cost — every GPU pair pulled out of NVLink roughly quadruples its A2A contribution.
+This is why MoE expert parallelism placement on the inner-most fabric (NVL72 NVSwitch within a single pod) is the production rule whenever it fits. NCCL's same-rail / same-ToR preference for A2A-heavy traffic mitigates the penalty when EP must span pods, but no scheduling trick recovers the full intra-pod cost — at this $M$, every send pulled out of NVLink costs ~7× more through a shared rail-ToR (0.62 → 4.2 μs) and ~16× more through the spine (→ 10.2 μs).
 
 ### 2.3 When hierarchical helps, when it hurts
 
 **Hierarchical composition helps when:**
 
-- **BW is tier-mismatched.** If the inner tier is 10–20× faster than the outer (NVLink vs InfiniBand), doing as much of the reduction as possible inside the inner tier shrinks the outer tier's payload from $M$ to $ML/N$. For a 2-tier system with $L = 16$ inner groups and $N = 1024$, the outer tier carries only $M/64$ of the original payload — a 64× reduction in cross-tier BW demand.
-- **Latency is tier-mismatched.** Inner-tier α is ~0.5 μs (NVSwitch), outer-tier α is ~2–5 μs (IB), so doing most algorithmic hops on the inner tier wins both on the α term and on the BW term.
+- **BW is tier-mismatched.** If the inner tier is 10–20× faster than the outer (NVLink vs InfiniBand), doing as much of the reduction as possible inside the inner tier shrinks the outer tier's payload from $M$ to $ML/N$. For a 2-tier system with $L = 16$ groups and $N = 1024$, the outer tier carries only $M/64$ of the original payload — a 64× reduction in cross-tier BW demand.
+- **Latency is tier-mismatched.** Inner-tier α is ~0.5 μs (NVSwitch), outer-tier α is ~2–8 μs (IB; $\alpha_{\mathrm{leaf}}$ to $\alpha_{\mathrm{spine}}$, §1.2), so doing most algorithmic hops on the inner tier wins both on the α term and on the BW term.
 
 **Hierarchical composition hurts when:**
 
@@ -452,14 +458,14 @@ This is why MoE expert parallelism placement on the inner-most fabric (NVL72 NVS
 
 ## 3. INC and contention in hierarchies
 
-In a multi-tier hierarchy, every reduction-or-replication primitive accumulates α at *both* tiers (§2.1's summary table). At production scale ($N_{\mathrm{inner}} = 72$, $L = 32$, $\alpha_{\mathrm{inner}} = 0.5\\,\mu$s, $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{spine}} = 8\\,\mu$s, software DBT), AR pays ~7 μs of inner α + ~80 μs of outer α; AG/RS/BC/Reduce pay half each. The outer term is the biggest single contributor in absolute terms, but the inner term is not negligible — and once the outer term is compressed, the inner term becomes the new bottleneck.
+In a multi-tier hierarchy, every reduction-or-replication primitive accumulates α at *both* tiers (§2.1's summary table). At production scale ($N_{\mathrm{inner}} = 72$, $L = 32$, $\alpha_{\mathrm{inner}} = 0.5\\,\mu$s, $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{spine}} = 8\\,\mu$s, log-depth software schedules), AR pays ~7 μs of inner α + ~80 μs of outer α; AG/RS/BC/Reduce pay half each. ("Log-depth software" means DBT for an AR and recursive halving / doubling — `01_collective_algorithms.md` Appendix B.4 — for RS / AG phases. It is an idealised baseline: NCCL ships ring for AG / RS, whose inner α would be $2 \cdot 71 \cdot 0.5 = 71\\,\mu$s rather than 7.) The outer term is the biggest single contributor in absolute terms, but the inner term is not negligible — and once the outer term is compressed, the inner term becomes the new bottleneck.
 
-The single biggest lever to compress these costs is **in-network collectives (INC)**: pushing reduction or multicast logic into the switch ASIC itself, so the affected phase pays $\sim 2\\,\alpha_{\mathrm{switch}}$ (a few hundred ns of switch cut-through) instead of $O(\log L)$ endpoint-driven rounds. INC applies at *both* tiers of the hierarchy, and **both are valuable**:
+The single biggest lever to compress these costs is **in-network collectives (INC)**: pushing reduction or multicast logic into the switch ASIC itself, so the affected phase pays $\sim 2\\,\alpha_{\mathrm{switch}}$ per switch tier crossed ($2k\\,\alpha_{\mathrm{switch}}$ across a $k$-tier aggregation tree; a few hundred ns of cut-through each) instead of $O(\log L)$ endpoint-driven rounds. INC applies at *both* tiers of the hierarchy, and **both are valuable**:
 
-- **Outer-tier INC** (Quantum SHARP on IB Quantum-2 / X800, Spectrum-X SHARP on Ethernet, Tomahawk Ultra-based fabrics) sees the **biggest absolute α saving** — collapses ~80 μs of outer DBT down to ~1 μs at $L = 32$. This is what gives hierarchical AR at $L = 32$ pods its production-relevance.
-- **Inner-tier INC** (NVLink SHARP / NVLS on NVSwitch Gen4 within an NVL72 pod) is **equally important** for two reasons: (i) it compresses the inner α from ~7 μs to ~0.4 μs, which becomes the dominant residual once outer INC is deployed; (ii) it lifts intra-pod AR's $\mathrm{BW_{eff}}$ from $\mathrm{BW}/2$ to $\mathrm{BW}$ — a measured ~1.3× BW win (470+ GB/s vs ~360 GB/s on H100, [NVLINK-SHARP]) that the outer tier can't replicate because the dual-touch pattern only manifests on endpoint-driven trees.
+- **Outer-tier INC** (Quantum SHARP on IB Quantum-2 / X800, Spectrum-X SHARP on Ethernet) sees the **biggest absolute α saving** — collapses ~80 μs of outer DBT down to ~2 μs at $L = 32$ ($k = 2$: leaf + spine). This is what gives hierarchical AR at $L = 32$ pods its production-relevance.
+- **Inner-tier INC** (NVLink SHARP / NVLS on NVSwitch Gen4 within an NVL72 pod) matters for two reasons: (i) it compresses the inner α from ~7 μs to ~0.8 μs (an INC RS plus an INC AG at $2\\,\alpha_{\mathrm{switch}}$ each), which is the dominant α residual once outer INC is deployed; (ii) for any AR that runs entirely inside the pod, it lifts $\mathrm{BW_{eff}}$ from $\mathrm{BW}/2$ to $\mathrm{BW}$ — a measured ~1.3× BW win (470+ GB/s vs ~360 GB/s on H100, [NVLINK-SHARP]). The hierarchical schedule's *inner phases* are RS and AG, which never had the dual-touch penalty, so for a cross-pod AR the inner tier's gain is the α collapse only.
 
-The two compose: a deployment with INC at both tiers gets the outer α collapse plus the inner BW lift simultaneously. INC is hardware-gated; see `04_in_network_collectives.md` §2 for per-fabric mechanics. This section focuses on how INC composes with the hierarchical schedules of §2.
+The two compose: a deployment with INC at both tiers gets both α collapses, plus the AR BW lift wherever an AR primitive actually runs — the outer sub-AR (on its telescoped $ML/N$ payload) and any pod-confined AR on the inner tier. INC is hardware-gated; see `04_in_network_collectives.md` §2 for per-fabric mechanics. This section focuses on how INC composes with the hierarchical schedules of §2.
 
 Two cross-cuts:
 
@@ -468,28 +474,38 @@ Two cross-cuts:
 
 ### 3.1 SHARP composes at any tier of the hierarchy
 
-The SHARP family collapses $n_\alpha$ to ~2 on its host fabric (`04_in_network_collectives.md` §1). In a hierarchical schedule (§2.1), SHARP can be installed independently at the inner tier, the outer tier, or both — each replacing its tier's endpoint-driven phase with an INC operation at switch cut-through latency $\alpha_{\mathrm{switch}}$. Tiers without INC continue to use software DBT or ring.
+The SHARP family collapses $n_\alpha$ to ~2 on a single-switch host fabric (`04_in_network_collectives.md` §1) and to $2k$ across a $k$-tier aggregation tree (`04_in_network_collectives.md` §2.2). In a hierarchical schedule (§2.1), SHARP can be installed independently at the inner tier, the outer tier, or both — each replacing its tier's endpoint-driven phase with an INC operation at switch cut-through latency $\alpha_{\mathrm{switch}}$. Tiers without INC continue to use software DBT or ring.
 
-**Per-tier SHARP impact on the α term**, at production scale ($N_{\mathrm{inner}} = 72$, $L = 32$, $\alpha_{\mathrm{inner}} = 0.5\\,\mu$s, $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{spine}} = 8\\,\mu$s; switch latencies $\alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.2\\,\mu$s for NVLS, $\alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 0.5\\,\mu$s for Quantum SHARP):
+**Per-tier SHARP impact on the α term**, at production scale ($N_{\mathrm{inner}} = 72$, $L = 32$, $\alpha_{\mathrm{inner}} = 0.5\\,\mu$s, $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{spine}} = 8\\,\mu$s; switch latencies $\alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.2\\,\mu$s for NVLS, $\alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 0.5\\,\mu$s for Quantum SHARP). Every INC operation costs one hop into the switch and one hop out — $2\\,\alpha_{\mathrm{sw}}$ on the single-switch inner tier, $2k\\,\alpha_{\mathrm{sw}}$ on the outer Clos, where the $L = 32$ deployment of Appendix A has $k = 2$ switch tiers (leaf + spine):
 
-| Primitive | Inner α (software DBT) | Inner α (NVLS) | Outer α (software DBT) | Outer α (Quantum SHARP) |
+| Primitive | Inner α (log-depth software) | Inner α (NVLS) | Outer α (log-depth software) | Outer α (Quantum SHARP) |
 |---|---|---|---|---|
-| **AR** | $2\lceil\log_2 N_{\mathrm{inner}}\rceil\\,\alpha_{\mathrm{inner}} \approx 7\\,\mu$s | $\sim 2\\,\alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.4\\,\mu$s | $2\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} \approx 80\\,\mu$s | $\sim 2\\,\alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 1\\,\mu$s |
-| **AG** | $\lceil\log_2 N_{\mathrm{inner}}\rceil\\,\alpha_{\mathrm{inner}} \approx 3.5\\,\mu$s | $\sim \alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.2\\,\mu$s | $\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} \approx 40\\,\mu$s | $\sim \alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 0.5\\,\mu$s |
-| **RS** | $\lceil\log_2 N_{\mathrm{inner}}\rceil\\,\alpha_{\mathrm{inner}} \approx 3.5\\,\mu$s | $\sim \alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.2\\,\mu$s | $\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} \approx 40\\,\mu$s | $\sim \alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 0.5\\,\mu$s |
-| **BC** | $\lceil\log_2 N_{\mathrm{inner}}\rceil\\,\alpha_{\mathrm{inner}} \approx 3.5\\,\mu$s | $\sim \alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.2\\,\mu$s | $\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} \approx 40\\,\mu$s | $\sim \alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 0.5\\,\mu$s |
-| **Reduce** | $\lceil\log_2 N_{\mathrm{inner}}\rceil\\,\alpha_{\mathrm{inner}} \approx 3.5\\,\mu$s | $\sim \alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.2\\,\mu$s | $\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} \approx 40\\,\mu$s | $\sim \alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 0.5\\,\mu$s |
+| **AR** | $2\lceil\log_2 N_{\mathrm{inner}}\rceil\\,\alpha_{\mathrm{inner}} \approx 7\\,\mu$s | $\sim 2 \cdot 2\\,\alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.8\\,\mu$s (INC RS + INC AG) | $2\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} \approx 80\\,\mu$s | $\sim 2k\\,\alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 2\\,\mu$s |
+| **AG** | $\lceil\log_2 N_{\mathrm{inner}}\rceil\\,\alpha_{\mathrm{inner}} \approx 3.5\\,\mu$s | $\sim 2\\,\alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.4\\,\mu$s | $\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} \approx 40\\,\mu$s | $\sim 2k\\,\alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 2\\,\mu$s |
+| **RS** | $\lceil\log_2 N_{\mathrm{inner}}\rceil\\,\alpha_{\mathrm{inner}} \approx 3.5\\,\mu$s | $\sim 2\\,\alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.4\\,\mu$s | $\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} \approx 40\\,\mu$s | $\sim 2k\\,\alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 2\\,\mu$s |
+| **BC** | $\lceil\log_2 N_{\mathrm{inner}}\rceil\\,\alpha_{\mathrm{inner}} \approx 3.5\\,\mu$s | $\sim 2\\,\alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.4\\,\mu$s | $\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} \approx 40\\,\mu$s | $\sim 2k\\,\alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 2\\,\mu$s |
+| **Reduce** | $\lceil\log_2 N_{\mathrm{inner}}\rceil\\,\alpha_{\mathrm{inner}} \approx 3.5\\,\mu$s | $\sim 2\\,\alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.4\\,\mu$s | $\lceil\log_2 L\rceil\\,\alpha_{\mathrm{outer}} \approx 40\\,\mu$s | $\sim 2k\\,\alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 2\\,\mu$s |
 | **A2A** | $(N_{\mathrm{inner}}{-}1)\\,\alpha_{\mathrm{inner}} \approx 35.5\\,\mu$s | No NVLS fit on Gen4<sup>*</sup> | — (no decomposition; §2.2) | No fit on traditional SHARP |
 
-<sup>*</sup>NVSwitch Gen4 NVLS supports AR / AG / BC but not A2A; Rubin-generation NVSwitches are expected to extend to A2A, and Tomahawk Ultra adds HW A2A on Ethernet today (`04_in_network_collectives.md` §1.2).
+The AR row's inner entries cover both inner phases of the §2.1 schedule (RS before the outer sub-AR, AG after it); the outer entry is the single outer sub-AR.
+
+<sup>*</sup>NCCL (v2.23) exposes NVSwitch Gen4 NVLS for AR / AG / RS — `ncclBroadcast` and `ncclReduce` run NCCL's ring, so the BC and Reduce entries in the NVLS column are the switch's hardware capability rather than an NCCL path — and there is no NVLS path for A2A; Rubin-generation NVSwitches are expected to extend to A2A, and Tomahawk Ultra adds HW A2A on Ethernet today (`04_in_network_collectives.md` §1.3).
 
 **Three structural points:**
 
-1. **Both tiers benefit from INC, in different ways.** Outer-tier INC dominates *absolute* α savings (80 → 1 μs is the biggest single move at $L = 32$). But once outer INC is in place, inner-tier α becomes the new dominant cost (7 of 8 μs total residual). Inner-tier NVLS compresses that residual to ~0.4 μs — the *only* lever that brings hierarchical AR within striking distance of single-pod cost.
-2. **AR uniquely compounds α and BW wins, and the BW win is inner-tier-specific.** Endpoint-driven AR pays the $\mathrm{BW_{eff}} = \mathrm{BW}/2$ dual-touch penalty; SHARP reduces in the switch ALU and eliminates the pattern. NVLS-measured intra-pod AR busbw rises from ~360 GB/s to 470+ GB/s (~1.3×) on H100 [NVLINK-SHARP]. The outer tier inherits the same BW lift on its phase, but the inner tier's lift is what matters at large $M$ because the outer payload is already telescoped to $ML/N$. AG / RS / BC / Reduce never had the dual-touch penalty, so SHARP gives them only the α collapse at either tier.
+1. **Both tiers benefit from INC, in different ways.** Outer-tier INC dominates *absolute* α savings (80 → 2 μs is the biggest single move at $L = 32$). But once outer INC is in place, inner-tier α becomes the new dominant α cost (7 of 9 μs total residual). Inner-tier NVLS compresses that residual to ~0.8 μs — the remaining α lever once the outer tier has been collapsed.
+2. **AR uniquely compounds α and BW wins — wherever an AR primitive actually runs.** Endpoint-driven AR pays the $\mathrm{BW_{eff}} = \mathrm{BW}/2$ dual-touch penalty; SHARP reduces in the switch ALU and eliminates the pattern. NVLS-measured intra-pod AR busbw rises from ~360 GB/s to 470+ GB/s (~1.3×) on H100 [NVLINK-SHARP]. In the §2.1 hierarchical schedule the only AR primitive is the outer sub-AR, so the BW lift lands on the outer phase — and since that payload is already telescoped to $ML/N$, it is worth only $(ML/N)/\mathrm{BW}\_{\mathrm{outer}} \approx 4.4\\,\mu$s at $M = 16\\,\mathrm{MB}$. The inner phases are an RS and an AG; like BC / Reduce they never had the dual-touch penalty, so SHARP gives them only the α collapse at either tier. The inner-tier BW lift is real, but it belongs to ARs confined to one pod, not to the inner phases of a cross-pod AR.
 3. **A2A has no INC path on traditional SHARP at either tier.** Rubin-gen NVSwitches and Tomahawk Ultra add dedicated HW A2A as a separate primitive (efficiency win, not the same structural collapse), but on current-shipping NVL72 + Quantum-X800, A2A stays software-scheduled.
 
-**Composing both tiers.** A deployment with NVLS + Quantum SHARP at $L = 32$ pays roughly $0.4 + 1 = 1.4\\,\mu$s of α total + ~9 μs BW (telescoped outer + NVLS-lifted inner) ≈ **~10 μs** end-to-end — essentially as fast as a single-pod NVLS AR despite spanning 32 pods. Outer-only SHARP (without NVLS) gets to ~$7 + 1 = 8\\,\mu$s α + ~13 μs BW ≈ ~21 μs; the NVLS contribution is the difference between "10 μs" and "21 μs" — half the remaining cost. That's why NVLS + Quantum SHARP is the standard combo on production GB200 SuperPODs.
+**Composing both tiers.** Price the full §2.1 schedule at $M = 16\\,\mathrm{MB}$, $L = 32$ ($N = 2304$, outer payload $ML/N = M/72 \approx 0.22\\,\mathrm{MB}$), phase by phase:
+
+| Deployment | Inner RS + AG (payload $M$, $\mathrm{BW}\_{\mathrm{inner}}$) | Outer sub-AR (payload $M/72$, $\mathrm{BW}\_{\mathrm{outer}}$) | α total | BW total | **Total** |
+|---|---|---|---|---|---|
+| Log-depth software at both tiers | 7 μs α + $2 \cdot \tfrac{71}{72} \cdot \tfrac{M}{\mathrm{BW}\_{\mathrm{inner}}} = 35.1\\,\mu$s | 80 μs α + $2 \cdot \tfrac{M/72}{\mathrm{BW}\_{\mathrm{outer}}} = 8.9\\,\mu$s | 87 μs | 44.0 μs | **~131 μs** |
+| Outer-only Quantum SHARP | 7 μs α + 35.1 μs | 2 μs α + $\tfrac{M/72}{\mathrm{BW}\_{\mathrm{outer}}} = 4.4\\,\mu$s | 9 μs | 39.5 μs | **~48.5 μs** |
+| NVLS + Quantum SHARP | 0.8 μs α + 35.1 μs | 2 μs α + 4.4 μs | 2.8 μs | 39.5 μs | **~42 μs** |
+
+Outer SHARP is the big move (131 → 48.5 μs, almost all of it the 80 → 2 μs α collapse, plus the 4.4 μs BW lift on the outer sub-AR). Adding NVLS removes another ~6 μs of inner α (7 → 0.8 μs), about 13% of what is left. The floor that remains is BW, and it is an inner-tier floor: the inner RS and AG each move $\tfrac{71}{72} M$ at $\mathrm{BW}\_{\mathrm{inner}}$ and run on opposite sides of the outer phase, so they cannot overlap the way a single-pod NVLS AR's up and down halves do. Spanning 32 pods therefore costs ~42 μs against ~18 μs ($2\\,\alpha_{\mathrm{sw}}^{\mathrm{inner}} + M/\mathrm{BW}\_{\mathrm{inner}}$) for a single-pod NVLS AR — about 2.3×, with the IB tier contributing only ~6 of those μs. NVLS + Quantum SHARP is the standard combo on production GB200 SuperPODs because it removes essentially all of the α; the BW term is already set by the scale-up fabric.
 
 ### 3.2 Per-tier η in a hierarchical schedule
 
@@ -506,7 +522,7 @@ The "inner" and "outer" labels here match the tier labels from §2.1's hierarchi
 | **Inner** (NVSwitch within pod) | Intra-pod scale-up | ≈ 1.00 | ≈ 0.80 | n/a (NVSwitch typically not oversubscribed) | n/a |
 | **Outer** (IB Quantum-2 / X800 Clos) | Cross-pod scale-out | ≈ 1.10–1.30 | ≈ 0.80 | $\min(0.80, 0.50) = 0.50$ | $\min(0.80, 0.25) = 0.25$ |
 
-The outer-tier $\eta_\beta$ is bounded by $\min(\eta_\beta^{\mathrm{hw}}, 1/s)$: oversubscription pins it at $1/s$ once $s > 1.25$. The outer-tier $\eta_\alpha$ inflates additively from cross-tier queueing under load (1.10–1.30 typical, climbs to 2–3× past 80% utilization). The inner-tier coefficients are deployment-stable because NVSwitch is engineered for full bisection.
+The outer-tier $\eta_\beta$ is bounded by $\min(\eta_\beta^{\mathrm{hw}}, 1/s)$: oversubscription pins it at $1/s$ once $s > 1.25$. The outer-tier $\eta_\alpha$ grows with cross-tier queueing under load (1.10–1.30 typical, climbs to 2–3× past 80% utilization). The inner-tier coefficients are deployment-stable because NVSwitch is engineered for full bisection.
 
 **Implication.** Oversubscription at the outer tier makes that tier relatively more expensive for BW-heavy primitives — the outer phase's BW term inflates by $s$ regardless of which collective is running. Any tier-assignment optimizer (e.g., a partition-strategy search over hierarchical cost) must feed $\eta_\beta^{\mathrm{outer}}(s)$ into the formula, not just the ideal $(\alpha, \mathrm{BW})$, or it will miss-rank deployments where oversubscription matters.
 
@@ -517,8 +533,8 @@ The outer-tier $\eta_\beta$ is bounded by $\min(\eta_\beta^{\mathrm{hw}}, 1/s)$:
 Three patterns emerge from combining hierarchical cost with INC and η:
 
 1. **SHARP compresses the "extra tier" penalty almost completely** for AR-heavy workloads. A 3-tier Clos with SHARP at the super-spine runs AR at a cost close to 2-tier without SHARP.
-2. **A2A has no INC path on shipping hardware** (`04_in_network_collectives.md §1.1` — no reduction or replication semantics). EP A2A is the primitive whose cost is hardest to compress by going hierarchical — which is why MoE inference workloads are so sensitive to tier topology choice.
-3. **Contention η compresses Pareto margins, not rankings.** Under realistic η, the winning hierarchical schedule typically doesn't change — the gap to the runner-up just narrows. This matches the observation in `05_contention_and_congestion.md §5.3` that realistic η tightens every margin without reshuffling winners.
+2. **A2A has no SHARP-class INC path** (`04_in_network_collectives.md §1.3` — no reduction or replication semantics); the only in-network help is the separate HW A2A primitive, which ships today only on Tomahawk Ultra and collapses α, not BW. EP A2A is the primitive whose cost is hardest to compress by going hierarchical — which is why MoE inference workloads are so sensitive to tier topology choice.
+3. **Contention η moves Pareto margins, not rankings.** Under realistic η, the winning hierarchical schedule typically doesn't change — the gaps just move. This matches the observation in `05_contention_and_congestion.md §5.3` that realistic η leaves the winners in place while compressing the gaps to INC and widening the star-vs-torus gaps.
 
 ---
 
@@ -550,7 +566,7 @@ GB200 compute tray (1 of 18 per NVL72 rack — 4 GPUs / 4 NICs):
    ┌────────╫────────────╫────────────╫────────────╫─────┐
    │        ║            ║            ║            ║     │
    │      GPU_0        GPU_1        GPU_2        GPU_3   │
-   │        │            │            │            │     │   PCIe Gen5
+   │        │            │            │            │     │   PCIe Gen5/6
    │      NIC_0        NIC_1        NIC_2        NIC_3   │   (1 NIC/GPU)
    │        │            │            │            │     │
    └────────┼────────────┼────────────┼────────────┼─────┘
@@ -559,7 +575,7 @@ GB200 compute tray (1 of 18 per NVL72 rack — 4 GPUs / 4 NICs):
        4 IB cables out of the tray, one per rail, up to the IB ToR layer
 ```
 
-**Rail rule (cluster-wide).** GPU_$i$'s NIC always lands on rail $i$, and **this rule is identical across every tray (0–17) of every pod in the cluster** (NVL72_0, NVL72_1, …). So slot $i$ across every tray in every pod forms a single **rail-$i$ communicator of $L$ GPUs** (32 GPUs at $L = 32$) — one GPU per pod, all reachable through rail-$i$'s IB fabric without ever leaving the rail. A GPU's rail is set by its tray-slot position, not by which tray or which pod it lives in. (Cross-rail traffic — GPU_$i$ ↔ GPU_$j$ for $i \neq j$ across pods — uses NVLink as a rail bridge; see §1.1's "Cross-pod, cross-rail" bullet.)
+**Rail rule (cluster-wide).** GPU_$i$'s NIC always lands on rail $i$, and **this rule is identical across every tray (0–17) of every pod in the cluster** (NVL72_0, NVL72_1, …). So slot $i$ across every tray in every pod forms a single **rail-$i$ communicator of $18L$ GPUs** (576 GPUs at $L = 32$ — 18 per pod), all reachable through rail-$i$'s IB fabric without ever leaving the rail; fixing the tray as well — one (tray, slot) position — picks out the $L$-GPU, one-per-pod group (32 GPUs at $L = 32$) that a §2.1 outer sub-AR runs on. A GPU's rail is set by its tray-slot position, not by which tray or which pod it lives in. (Cross-rail traffic — GPU_$i$ ↔ GPU_$j$ for $i \neq j$ across pods — uses NVLink as a rail bridge; see §1.1's "Cross-pod, cross-rail" bullet.)
 
 **(2) NVL72 pod = 1 rack.** The full NVL72 is one physical rack containing **18 compute trays + 9 NVSwitch trays** plus power/management hardware. The 9 NVSwitch trays form the **NVLink fabric** that connects all 72 GPUs intra-pod — every GPU's NVLink ports cable to the NVSwitch trays, forming a rack-internal switched fabric. **No NVLink cable leaves the rack.** The 72 NIC outputs (4 NICs/tray × 18 trays) all exit upward toward the IB ToR layer:
 
@@ -819,7 +835,7 @@ Al-Fares et al. [AL-FARES08] realized fat-tree properties using **only commodity
 | **Total endpoints** | $k^3/4$ | **16** | **27,648** | **65,536** |
 | Total switches | $5k^2/4$ | 20 | 2,880 | 5,120 |
 
-**Uniform port split per switch** (every switch — edge, aggregation, core — has $k$ ports split evenly):
+**Uniform port split per switch** (every edge and aggregation switch has its $k$ ports split evenly; core switches, at the top of the fabric, use all $k$ ports downward):
 
 ```
   ┌───────────────┐       k/2 "up" ports     (toward higher tier)
@@ -838,7 +854,7 @@ Al-Fares et al. [AL-FARES08] realized fat-tree properties using **only commodity
   CORE tier: (k/2)² = 4 switches; each has k = 4 ports (all downward, one per pod)
 
                  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
-                 │ C(1,1) │ │ C(1,2) │ │ C(2,1) │ │ C(2,2) │      4 core switches
+                 │ C(0,0) │ │ C(0,1) │ │ C(1,0) │ │ C(1,1) │      4 core switches
                  └──┬┬┬┬──┘ └──┬┬┬┬──┘ └──┬┬┬┬──┘ └──┬┬┬┬──┘      each with 4 ports
                     ││││       ││││       ││││       ││││         (one per pod)
                     ││││  16 core↔aggregation links total (each core has one link to
@@ -868,15 +884,15 @@ Al-Fares et al. [AL-FARES08] realized fat-tree properties using **only commodity
      R₀R₁  R₂R₃          R₄R₅   R₆R₇          R₈R₉   R₁₀R₁₁       R₁₂R₁₃  R₁₄R₁₅
 ```
 
-**Per-switch port accounting** (every switch has $k = 4$ ports; split 2 up, 2 down):
+**Per-switch port accounting** (every switch has $k = 4$ ports; edge and aggregation split 2 up / 2 down, core is 4 down):
 
-| Switch type | 2 "up" ports connect to | 2 "down" ports connect to |
+| Switch type | "Up" ports connect to | "Down" ports connect to |
 |---|---|---|
-| Edge $E_{p,i}$ (pod $p$, edge $i$) | Both aggregation switches in pod $p$ | 2 endpoints |
-| Aggregation $A_{p,j}$ (pod $p$, agg $j$) | 2 of the 4 core switches — specifically cores $C(i, j)$ for $i \in \\{1, 2\\}$ | Both edge switches in pod $p$ |
-| Core $C(i, j)$ | N/A (top tier) | 1 aggregation switch per pod — $k$ = 4 ports, one per pod, connecting to agg $j$ of each pod |
+| Edge $E_{p,i}$ (pod $p$, edge $i$) | 2 up: both aggregation switches in pod $p$ | 2 down: 2 endpoints |
+| Aggregation $A_{p,j}$ (pod $p$, agg $j$) | 2 up: 2 of the 4 core switches — specifically cores $C(i, j)$ for $i \in \\{0, 1\\}$ | 2 down: both edge switches in pod $p$ |
+| Core $C(i, j)$ | N/A (top tier) | 4 down: 1 aggregation switch per pod — $k$ = 4 ports, one per pod, connecting to agg $j$ of each pod |
 
-**Wiring rule (where the magic happens)**: Core switches are indexed by a pair $(i, j)$ with $i, j \in \\{1, \ldots, k/2\\}$. Core $C(i, j)$'s $p$-th port connects to aggregation switch $j$ in pod $p$. This partitions the $(k/2)^2$ cores into $k/2$ parallel **planes** — each plane consists of $k/2$ cores all talking to the same aggregation index across every pod. Different planes (different $j$) carry independent cross-pod traffic, enabling ECMP load balancing.
+**Wiring rule (where the magic happens)**: Core switches are indexed by a pair $(i, j)$ with $i, j \in \\{0, \ldots, k/2 - 1\\}$, matching the aggregation index $j$ in $A_{p,j}$. Core $C(i, j)$'s $p$-th port connects to aggregation switch $j$ in pod $p$. This partitions the $(k/2)^2$ cores into $k/2$ parallel **planes** — each plane consists of $k/2$ cores all talking to the same aggregation index across every pod. Different planes (different $j$) carry independent cross-pod traffic, enabling ECMP load balancing.
 
 ### B.3 Comparison: Leiserson vs Al-Fares
 
@@ -896,7 +912,7 @@ The two share the "fat-tree" name but achieve the fattening through different me
 ### B.4 Why k-ary dominates AI datacenters
 
 - **Commodity economics**: single switch SKU throughout the fabric → single vendor negotiation, single firmware stream, interchangeable spares. One 48-port switch model can build fabrics from 48 endpoints (small pilot) to 27,648 endpoints (full $k^3/4$ deployment).
-- **Cabling predictability**: every switch has the same $k/2$-up / $k/2$-down port assignment, so cabling templates repeat verbatim per pod.
+- **Cabling predictability**: every edge and aggregation switch has the same $k/2$-up / $k/2$-down port assignment, so cabling templates repeat verbatim per pod.
 - **Full bisection by construction**: $s = 1$ at every tier means no cross-tier BW bottleneck under permutation traffic — any pairing of endpoints can run at full link rate.
 - **ECMP-native**: $(k/2)^2$ core switches give $(k/2)^2$ equivalent paths between any two pods; standard ECMP hashing spreads flows evenly without fabric-specific logic.
 - **Single-knob scaling**: need more endpoints? Pick a larger $k$ (different commodity switch), rebuild. Don't need to redesign the topology itself — the recipe is the same at any $k$.
@@ -905,7 +921,7 @@ The two share the "fat-tree" name but achieve the fattening through different me
 
 | Fabric | Switch radix $k$ | Total endpoint capacity | Deployments |
 |---|---|---|---|
-| NVIDIA SuperPOD (Quantum-2 IB NDR) | 40 (HCA) / 64 (switch) | ~16–32K GPUs per pod | DGX SuperPOD, Meta RSC |
+| NVIDIA SuperPOD (Quantum-2 IB NDR) | 64 | 65,536 at the full 3-tier $k^3/4$ | DGX SuperPOD |
 | NVIDIA Quantum-X800 | 144 | >500K endpoints per fabric | Blackwell-class GB200 deployments |
 | Broadcom Tomahawk 5 (Ethernet) | 256–512 | Millions via 3-tier | Hyperscaler AI clusters |
 | Arista 7060X / 7800 (Ethernet) | 32–128 | Varies | Meta, Microsoft, Google |
@@ -915,7 +931,7 @@ The two share the "fat-tree" name but achieve the fattening through different me
 ## Further reading
 
 - **`01_collective_algorithms.md`** — per-primitive cost formulas (ring, DBT, RHD, Rabenseifner, pairwise); the building blocks composed here.
-- **`02_topology_mapping.md`** — single-tier scale-up costs for star, torus, mesh; §5.1 has the per-topology cost-formula summary that §2.2 here builds on.
+- **`02_topology_mapping.md`** — single-tier scale-up costs for star, torus, mesh; §5.1 has the per-topology cost-formula summary that §2.1 here builds on.
 - **`04_in_network_collectives.md`** — SHARP / NVLS / Quantum SHARP / Spectrum-X SHARP mechanics; §3 above relies on the scale-out INC cost model from §2.2 there.
-- **`05_contention_and_congestion.md`** — per-tier $\eta$ calibration (§5.1); feeds §3.2 here.
-- **`references.md`** — primary sources on Megatron-LM parallelism (Shoeybi et al.), hierarchical collective scheduling (Thakur & Gropp, MagPie), and the Leiserson (1985) fat-tree foundational paper.
+- **`05_contention_and_congestion.md`** — $\eta$ calibration (§4.1) and the per-tier $\eta$ profile (§4.2); feeds §3.2 here.
+- **`references.md`** — primary sources on hierarchical collective scheduling (MagPIe), the Leiserson (1985) fat-tree foundational paper, and the Al-Fares (2008) k-ary construction.

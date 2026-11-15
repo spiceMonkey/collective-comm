@@ -2,7 +2,7 @@
 
 Defaults mirror the regression anchors from
 ``documentation/modeling/04_in_network_collectives.md`` §3.1 and
-``05_contention_and_congestion.md`` §6.1: N=512, M=16 MB, α=0.5 μs,
+``05_contention_and_congestion.md`` §5.1: N=512, M=16 MB, α=0.5 μs,
 BW=900 GB/s. Override per-cell when sweeping.
 """
 
@@ -24,12 +24,14 @@ class Anchors:
     # Torus / k-D mesh decomposition for the same N=512.
     dims: tuple = (8, 8, 8)
 
-    # Hierarchical (NVL72-style scale-up + IB-class scale-out).
+    # Hierarchical (NVL72-style scale-up + IB-class scale-out). The outer α is
+    # an illustrative round number; 03_hierarchical_topologies.md §1.2 uses
+    # α_leaf ≈ 2 μs / α_spine ≈ 8 μs for its NVL72 + IB case studies.
     L: int = 8                  # outer groups
     alpha_inner: float = 0.5e-6
     bw_inner: float = 900e9
     alpha_outer: float = 1.0e-6
-    bw_outer: float = 50e9      # 400 Gbps NDR-class per-GPU bidi
+    bw_outer: float = 50e9      # 400 Gb/s NDR NIC = 50 GB/s per direction
 
     # Optional: total ranks for hierarchical helpers (defaults to G).
     N_hier: int = field(default=0)

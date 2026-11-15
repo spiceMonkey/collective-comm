@@ -28,6 +28,7 @@ collective_comm/
 │   └── references.md
 └── code/
     ├── core/collective_cost.py   ← α-β cost primitives (BC, Reduce, AR, AG/RS, A2A)
+    ├── tests/                    ← stdlib unittest regression suite (canonical anchors)
     ├── util/                     ← anchors, primitive registry, sweep helpers
     └── notebooks/
         ├── 00_api_enumeration.ipynb           ← every primitive at the canonical anchor
@@ -47,7 +48,7 @@ The series under `documentation/modeling/` is the contract the code implements. 
 |---|---|
 | `01_collective_algorithms.md` | α-β model; ring / DBT / Rabenseifner / PAT / Bruck per primitive |
 | `02_topology_mapping.md` | Single-tier specializations: star, k-D torus, k-D mesh |
-| `03_hierarchical_topologies.md` | Multi-tier Clos / fat-tree composition; TP/EP/PP/DP allocation |
+| `03_hierarchical_topologies.md` | Multi-tier Clos / fat-tree; hierarchical composition (RS → sub-AR → AG); INC and η per tier |
 | `04_in_network_collectives.md` | NVLS / SHARP / Tomahawk Ultra; switch-ALU + multicast |
 | `05_contention_and_congestion.md` | η_α, η_β coefficients; calibration profiles |
 | `references.md` | Verified equations and primary sources |
@@ -67,6 +68,12 @@ python3.14 -m venv .venv
 
 The core cost functions are stdlib-only — you only need pandas / matplotlib for the notebooks.
 
+The examples below import `core` and `util`, so run them from `code/` (or with `PYTHONPATH=code`). To check the canonical anchors:
+
+```bash
+.venv/bin/python -m unittest discover -s code/tests
+```
+
 ---
 
 ## Examples
@@ -83,8 +90,8 @@ from core.collective_cost import (
 M, G, alpha, bw = 16e6, 512, 0.5e-6, 900e9
 
 print(f"ring AR:           {ring_all_reduce(M, G, alpha, bw) * 1e6:7.1f} μs")  # 546.5
-print(f"DBT AR:            {tree_all_reduce(M, G, alpha, bw) * 1e6:7.1f} μs")  # 169.0
-print(f"DBT AR pipelined:  {tree_all_reduce(M, G, alpha, bw, pipelined=True) * 1e6:7.1f} μs")  # 26.8
+print(f"DBT AR:            {tree_all_reduce(M, G, alpha, bw) * 1e6:7.1f} μs")  # 329.0
+print(f"DBT AR pipelined:  {tree_all_reduce(M, G, alpha, bw, pipelined=True) * 1e6:7.1f} μs")  # 44.6
 print(f"Rabenseifner AR:   {rabenseifner_all_reduce(M, G, alpha, bw) * 1e6:7.1f} μs")  # 44.5
 print(f"INC AR (NVLS):     {inc_all_reduce(M, alpha, bw) * 1e6:7.1f} μs")      # 18.8
 print(f"torus 8³ AR:       {torus_all_reduce(M, (8,8,8), alpha, bw) * 1e6:7.1f} μs")  # 56.5
@@ -96,6 +103,7 @@ print(f"torus 8³ AR:       {torus_all_reduce(M, (8,8,8), alpha, bw) * 1e6:7.1f}
 from core.collective_cost import inc_all_reduce, apply_eta
 
 # NVLS calibration from 05_contention_and_congestion.md §4.1
+# (reuses M, alpha, bw from example 1)
 alpha_eff, bw_eff = apply_eta(alpha, bw, eta_alpha=1.00, eta_beta=0.52)
 print(f"INC AR (realistic): {inc_all_reduce(M, alpha_eff, bw_eff) * 1e6:.1f} μs")  # ~35
 ```
@@ -112,20 +120,19 @@ t = hierarchical_all_reduce_ring_ring(
     alpha_inner=0.5e-6, bw_inner=900e9,  # NVLink-class
     alpha_outer=1.0e-6, bw_outer=50e9,   # 400 Gbps IB-class
 )
-print(f"hierarchical AR: {t * 1e6:.1f} μs")
+print(f"hierarchical AR: {t * 1e6:.1f} μs")  # 127.8
 ```
 
 The outer sub-AR ships only the *telescoped* payload `M·L/N` — see `documentation/modeling/03_hierarchical_topologies.md` §2.1 for the derivation.
 
-### 4. Sweep across η profiles using the registry
+### 4. Enumerate every primitive with the registry
 
 ```python
-from util import Anchors, ETA_PROFILES, run_all
-from core.collective_cost import apply_eta
+from util import Anchors, run_all
 
 a = Anchors()  # canonical N=512 anchor
-for name, row in {r["name"]: r for r in run_all(a)}.items():
-    print(f"{name:35s} {row['t_us']:7.2f} μs")
+for row in run_all(a):
+    print(f"{row['name']:42s} {row['t_us']:9.2f} μs")
 ```
 
 Each `Anchors()` field (M, G, alpha, bw, dims, L, alpha_inner, bw_inner, ...) is overridable; pass the modified anchor back into `run_all` to re-evaluate every primitive.
@@ -141,16 +148,16 @@ The notebooks reproduce these exactly — useful as test oracles when changing c
 | Algorithm | Cost |
 |---|---|
 | star + ring AR | 546 μs |
-| star + DBT (n_β=2 dual-touch) | 45 μs |
+| star + DBT (pipelined, n_β=2) | 45 μs |
 | 512-port star + NVLS (INC) | 18.8 μs |
 | torus 8³ + dim-decomp ring | 57 μs |
 
-**Realistic η (`documentation/modeling/05_contention_and_congestion.md` §6.1)**, same anchor under the §4.1 calibration:
+**Realistic η (`documentation/modeling/05_contention_and_congestion.md` §5.1)**, same anchor under the §4.1 calibration:
 
 | Algorithm | Profile | Cost |
 |---|---|---|
 | star + NVLS (INC) | nvls (η_α=1.00, η_β=0.52) | 35 μs |
-| star + DBT (dual-touch) | crossbar (η_α=1.00, η_β=0.80) | 53 μs |
+| star + DBT (pipelined) | crossbar (η_α=1.00, η_β=0.80) | 53 μs |
 | torus 8³ + dim-decomp | torus (η_α=1.20, η_β=0.60) | 84 μs |
 
 ---
@@ -161,4 +168,5 @@ The notebooks reproduce these exactly — useful as test oracles when changing c
 - **Core stays stdlib-only.** Notebooks may import pandas / matplotlib.
 - **η profiles are per-fabric calibrations**, not free dials. `nvls` only applies to INC AR; `torus` only to torus algorithms; `crossbar` to software AR on NVSwitch. See `documentation/modeling/05_contention_and_congestion.md` §4.1.
 - **Pipelined vs non-pipelined** is exposed as a `pipelined: bool = False` flag on BC / Reduce / DBT AR. Default = literal P=1 schedule; `pipelined=True` = the asymptotic P→P\* limit (Appendix C of `documentation/modeling/01_collective_algorithms.md`).
+- **`BW` is the per-rank port bandwidth.** On a single-port star, DBT AR moves 2M through each rank's port, so `tree_all_reduce(..., pipelined=True)` costs `2⌈log₂ N⌉·α + 2·M/BW` (the 45 μs anchor). Pass `multi_port=True` for fabrics where every tree edge has its own full-BW link (up to four per rank); both DBT BW coefficients then halve.
 

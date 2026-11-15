@@ -16,18 +16,20 @@ and get a DataFrame with columns ``[M_bytes, label, t_us]`` ready for
 import math
 from typing import Callable, Iterable
 
-import pandas as pd
-
 
 def sweep(
     curves: dict[str, Callable[[float], float]],
     x_values: Iterable[float],
     x_name: str = "x",
-) -> pd.DataFrame:
+) -> "pd.DataFrame":
     """Evaluate every curve at every ``x``; return long-form DataFrame.
 
     Each curve must return seconds; the result column ``t_us`` is in microseconds.
+    pandas is imported here, not at module import, so ``util`` (anchors,
+    registry) stays usable with the standard library alone.
     """
+    import pandas as pd
+
     xs = list(x_values)
     rows = []
     for x in xs:

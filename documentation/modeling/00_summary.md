@@ -24,7 +24,7 @@ A one-page reference for the symbols, primitives, and canonical α-β cost formu
 |---|---|---|
 | $\alpha$ | per-hop latency (setup + switch traversal + propagation) | `01_collective_algorithms.md` §1 |
 | $M$ | message size in bytes | `01_collective_algorithms.md` §1 |
-| $\mathrm{BW}$ | per-link bandwidth (one direction) | `01_collective_algorithms.md` §1 |
+| $\mathrm{BW}$ | per-rank port bandwidth, one direction (per-link bandwidth on a torus / mesh) | `01_collective_algorithms.md` §1 |
 | $N$ | rank count in the collective group | `01_collective_algorithms.md` §2 |
 | $V_i$ | payload held by rank $i$ (size $M$) | `01_collective_algorithms.md` §2 |
 | $n_\alpha$ | latency-term count (sequential synchronization hops) | `01_collective_algorithms.md` §1 |
@@ -51,7 +51,7 @@ A one-page reference for the symbols, primitives, and canonical α-β cost formu
 | **Broadcast (BC)** | rank 0 holds $V$ → all hold $V$ |
 | **Reduce** | rank $i$ holds $V_i$ → rank 0 holds $\sum_i V_i$ |
 | **All-reduce (AR)** | rank $i$ holds $V_i$ → all hold $\sum_i V_i$ |
-| **Reduce-scatter (RS)** | rank $i$ holds $V_i$ (size $M$) → rank $i$ holds chunk $\sum_j V_j[\mathrm{chunk}_i]$ (size $M/N$) |
+| **Reduce-scatter (RS)** | rank $i$ holds $V_i$ (size $M$) → rank $i$ holds chunk $\sum_j V_j[\mathrm{chunk}\_i]$ (size $M/N$) |
 | **All-gather (AG)** | rank $i$ holds chunk $i$ (size $M/N$) → all hold concatenation (size $M$) |
 | **All-to-all (A2A)** | rank $i$ holds $N$ chunks indexed by destination → rank $i$ holds $N$ chunks indexed by sender |
 | **Point-to-point (P2P)** | rank $a$ holds $V$ → rank $b$ holds $V$ |
@@ -73,31 +73,32 @@ A primitive's BW-side lower bound is set by the cut-through structure:
 
 | Primitive | $n_\beta$ lower bound | Why |
 |---|---|---|
-| BC, Reduce, AG, RS | $(N-1)/N \to 1$ | one rank's share crosses the cut once |
+| BC, Reduce | $1$ | the full $M$ leaves the root (BC) or arrives at it (Reduce) |
+| AG, RS | $(N-1)/N \to 1$ | each rank ships / receives everything but its own $M/N$ share |
 | AR | $2(N-1)/N \to 2$ | every byte is touched twice (RS in, AG out) — *unless* INC fuses the two halves |
-| A2A | $(N-1)/N$ per rank | $N(N-1)$ pairwise distinct payloads bisection-bound |
+| A2A | $(N-1)/N$ per rank | $N(N-1)$ pairwise-distinct chunks; per-port bound on a star, bisection-bound on a ring / torus |
 
 ---
 
 ## 4. Per-algorithm costs (topology-free)
 
-Costs assume an abstract fully-connected fabric (every rank can reach every other in 1 hop). Topology corrections come from §5.
+Costs assume an abstract fully-connected fabric (every rank can reach every other in 1 hop) with one full-duplex port of bandwidth $\mathrm{BW}$ per rank. "Raw" is the non-pipelined $P = 1$ schedule; "pipelined" is the $P \to P^{\ast}$ limit of `01_collective_algorithms.md` App. C. Topology corrections come from §5.
 
 | Algorithm | Primitive | $n_\alpha$ | $n_\beta$ | Source |
 |---|---|---|---|---|
-| Ring (chain) | BC | $(N-1)$ raw / $\to 1$ pipelined | $1$ | `01_collective_algorithms.md` §3.1 |
-| Binomial tree | BC | $\lceil \log_2 N \rceil$ raw / pipelined to $\to 1$ | $1$ | `01_collective_algorithms.md` §3.2 |
-| Ring | Reduce | $(N-1)$ raw / pipelined to $\to 1$ | $1$ | `01_collective_algorithms.md` §4.1 |
-| Binomial tree | Reduce | $\lceil \log_2 N \rceil$ raw / pipelined to $\to 1$ | $1$ | `01_collective_algorithms.md` §4.2 |
+| Ring (chain) | BC | $(N-1)$ | $(N-1)$ raw / $\to 1$ pipelined | `01_collective_algorithms.md` §3.1 |
+| Binomial tree | BC | $\lceil \log_2 N \rceil$ | $\lceil \log_2 N \rceil$ raw / $\to 1$ pipelined (two-tree [SST09]) | `01_collective_algorithms.md` §3.2 |
+| Ring | Reduce | $(N-1)$ | $(N-1)$ raw / $\to 1$ pipelined | `01_collective_algorithms.md` §4.1 |
+| Binomial tree | Reduce | $\lceil \log_2 N \rceil$ | $\lceil \log_2 N \rceil$ raw / $\to 1$ pipelined (two-tree [SST09]) | `01_collective_algorithms.md` §4.2 |
 | Ring | AR | $2(N-1)$ | $2(N-1)/N \to 2$ | `01_collective_algorithms.md` §5.1 |
-| Double binary tree (DBT) | AR | $2 \lceil \log_2 N \rceil$ | $2$ (BW-eff = BW/2) | `01_collective_algorithms.md` §5.2 |
+| Double binary tree (DBT) | AR | $2 \lceil \log_2 N \rceil$ | $2 \lceil \log_2 N \rceil$ raw / $\to 2$ pipelined (BW-eff = BW/2) | `01_collective_algorithms.md` §5.2 |
 | Recursive-halving + doubling (Rabenseifner) | AR | $2 \lceil \log_2 N \rceil$ | $2(N-1)/N \to 2$ | `01_collective_algorithms.md` App. B.2 |
 | Simple recursive-doubling | AR | $\lceil \log_2 N \rceil$ | $\lceil \log_2 N \rceil$ | `01_collective_algorithms.md` App. B.1 |
 | Ring | AG / RS | $(N-1)$ | $(N-1)/N \to 1$ | `01_collective_algorithms.md` §6 |
 | PAT (parallel aggregated trees) | AG / RS | $\lceil \log_2 N \rceil$ | $(N-1)/N \to 1$ | `01_collective_algorithms.md` App. A |
 | Recursive-doubling AG / -halving RS | AG / RS | $\lceil \log_2 N \rceil$ | $(N-1)/N \to 1$ | `01_collective_algorithms.md` App. B.4 |
 | Pairwise direct-send | A2A | $(N-1)$ | $(N-1)/N$ | `01_collective_algorithms.md` §7.2 |
-| Ring-relay | A2A | $(N-1)$ | varies (bisection-bound on torus) | `01_collective_algorithms.md` §7.1 |
+| Ring-relay (bidirectional ring) | A2A | $\lfloor N/2 \rfloor$ | $N/8$ (ring bisection bound; $\mathrm{BW}$ per ring link, two links per rank) | `01_collective_algorithms.md` §7.1 |
 | Bruck (log-round) | A2A | $\lceil \log_2 N \rceil$ | $\lceil \log_2 N \rceil / 2$ | `01_collective_algorithms.md` App. B.5 |
 
 **Headline AR formulas:**
@@ -106,7 +107,7 @@ $$t_{\mathrm{ring\\,AR}} \\;=\\; 2(N-1)\\,\alpha \\;+\\; \frac{2(N-1)}{N} \cdot 
 
 $$t_{\mathrm{tree\\,AR}} \\;=\\; 2\lceil \log_2 N \rceil \\,\alpha \\;+\\; 2\\,\frac{M}{\mathrm{BW}}$$
 
-(DBT hits the BW floor as a hardware ceiling under asymptotic pipelining; the practice gap is documented in `01_collective_algorithms.md` §5.3.)
+(Pipelined, single-port form: each rank is interior in one tree and a leaf in the other, so it moves $2M$ through its one port. With a dedicated full-BW link per tree edge (up to 4 per rank) both DBT BW coefficients halve; real DBT sits above the pipelined floor — `01_collective_algorithms.md` §5.2–§5.3.)
 
 ---
 
@@ -116,13 +117,13 @@ Single-tier scale-up fabrics. AR formula entries; AG / RS halve both terms; BC /
 
 | Topology | $n_\alpha$ (AR) | $n_\beta$ (AR) | A2A BW term | Source |
 |---|---|---|---|---|
-| Star (single switch) | $2(N-1)$ ring / $2 \lceil \log_2 N \rceil$ DBT | $2(N-1)/N \to 2$ | $(N-1)/N \cdot M/\mathrm{BW}$ pairwise | `02_topology_mapping.md` §2 |
-| Torus ($k$-D, $\prod d_i = N$, dim-decomposed ring) | $2 \sum_i (d_i - 1)$ | $2(N-1)/N \to 2$ | $(d_{\max}/8) \cdot M/\mathrm{BW}$ at cubic shapes | `02_topology_mapping.md` §3.4, §3.6 |
-| Torus dim-decomposed Rabenseifner (not shipped) | $2 \sum_i \lceil \log_2 d_i \rceil$ | $2(N-1)/N \to 2$ | — | `02_topology_mapping.md` App. A |
+| Star (single switch) | $2(N-1)$ ring / $2 \lceil \log_2 N \rceil$ DBT | $2(N-1)/N$ ring / $2$ DBT | $(N-1)/N \cdot M/\mathrm{BW}$ pairwise | `02_topology_mapping.md` §2 |
+| Torus ($k$-D, $\prod d_i = N$, dim-decomposed ring) | $2 \sum_i (d_i - 1)$ | $2(N-1)/N \to 2$ | $(d_{\max}/8) \cdot M/\mathrm{BW}$ ($1\times$ at $8^3$, $2\times$ at $16^3$) | `02_topology_mapping.md` §3.4, §3.6 |
+| Torus dim-decomposed Rabenseifner (not shipped; any-to-any best case — on ring wiring $\alpha$ returns to $2\sum_i (d_i - 1)$ and the BW coefficient rises for $d_i \geq 8$; see the App. A caveat) | $2 \sum_i \lceil \log_2 d_i \rceil$ | $2(N-1)/N \to 2$ | — | `02_topology_mapping.md` App. A |
 | Full mesh | identical to star at $\alpha \to \alpha_{\mathrm{link}}$ | $2(N-1)/N \to 2$ | $(N-1)/N \cdot M/\mathrm{BW}$ | `02_topology_mapping.md` §4.1 |
 | $k$-D mesh (no wraparound) | $2 \sum_i (d_i - 1)$ | $2(N-1)/N \to 2$ | $(d_{\max}/4) \cdot M/\mathrm{BW}$ — 2× worse than torus | `02_topology_mapping.md` §4.2 |
 
-Bisection: torus $\mathrm{BW}_{\mathrm{bisect}} = (2N/d_{\max}) \cdot \mathrm{BW}$; fat-tree $s \cdot N \cdot \mathrm{BW}$ (oversubscription).
+Bisection: torus $\mathrm{BW}\_{\mathrm{bisect}} = (2N/d_{\max}) \cdot \mathrm{BW}$; fat-tree $N \cdot \mathrm{BW} / (2s)$ at oversubscription $s$.
 
 ---
 
@@ -136,7 +137,11 @@ The middle phase ships the *telescoped* payload $ML/N$ — which is why hierarch
 
 **Oversubscription at any tier boundary** multiplies that tier's BW term by $s$ (equivalent to $\eta_\beta = 1/s$ on cross-tier traffic):
 
-$$t_{\mathrm{BW,outer}} \\;=\\; s \cdot \frac{M\\,L/N}{\mathrm{BW}_{\mathrm{outer}}}$$
+$$t_{\mathrm{BW,outer}} \\;=\\; n_\beta^{\mathrm{outer}} \cdot s \cdot \frac{M\\,L/N}{\mathrm{BW}\_{\mathrm{outer}}}$$
+
+with $n_\beta^{\mathrm{outer}}$ the outer sub-AR's own coefficient ($2(L-1)/L$ for a ring).
+
+**AG and RS are the two halves of AR:** $\mathrm{RS} \equiv$ inner RS → outer RS and $\mathrm{AG} \equiv$ outer AG → inner AG. In both, the outer tier ships only the telescoped $ML/N$, and each costs half of the hierarchical AR.
 
 A2A is the outlier: it cannot telescope, so per-tier ranks see $(N-1)/N \cdot M/\mathrm{BW}$ at the outer tier's bisection rate. See `03_hierarchical_topologies.md` §2.2.
 
@@ -144,16 +149,16 @@ A2A is the outlier: it cannot telescope, so per-tier ranks see $(N-1)/N \cdot M/
 
 ## 7. In-network collectives (INC)
 
-INC moves the reduction or replication into the switch ASIC (NVLS / Quantum SHARP / Spectrum-X SHARP / Tomahawk Ultra). On a single-switch star, $n_\alpha$ collapses from $O(N)$ or $O(\log N)$ down to $\sim 2$, and AR uniquely also gets a BW-eff doubling because the switch fuses the reduce and broadcast halves.
+INC moves the reduction or replication into the switch ASIC (NVLS / Quantum SHARP / Spectrum-X SHARP / Tomahawk Ultra). On a single-switch star, $n_\alpha$ collapses from $O(N)$ or $O(\log N)$ down to $2$ for every INC primitive (one hop into the switch, one hop out; α-speedups below are quoted at equal per-hop α), and AR uniquely also gets a BW-eff doubling because the switch fuses the reduce and broadcast halves.
 
-| Primitive | Required HW | $n_\alpha$ (INC) | $\mathrm{BW_{eff}}$ (INC) | Speedup vs software |
+| Primitive | Required HW | α term (INC) | $\mathrm{BW_{eff}}$ (INC) | Speedup vs software |
 |---|---|---|---|---|
 | AR | switch ALU + multicast xbar | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ (vs SW $\mathrm{BW}/2$) | α: $\sim (N-1)$ or $\log_2 N$ ×; BW: **2×** |
-| Reduce | switch ALU | $\sim \alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim \log_2 N$ ×; BW: 1× |
+| Reduce | switch ALU | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim \log_2 N / 2$ ×; BW: 1× |
 | RS | switch ALU | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim (N-1)/2$ ×; BW: 1× |
 | AG | multicast xbar | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim (N-1)/2$ ×; BW: 1× |
-| BC | multicast xbar | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim \log_2 N$ ×; BW: 1× |
-| A2A | crossbar scatter-gather (HW A2A; emerging) | $\sim \alpha_{\mathrm{switch}}$ | $(N-1)/N \cdot \mathrm{BW}$ | α: $\sim N$ ×; BW: 1× |
+| BC | multicast xbar | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim \log_2 N / 2$ ×; BW: 1× |
+| A2A | crossbar scatter-gather (HW A2A; emerging) | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ (per-port bound) | α: $\sim (N-1)/2$ ×; BW: 1× |
 
 **Scope.** SHARP-class INC is single-switch-domain (NVLS) or SHARP-enabled aggregation tree (Quantum SHARP, Spectrum-X SHARP). HW A2A ships today on Tomahawk Ultra and is on Rubin's roadmap. Cross-domain traffic falls back to software DBT / ring.
 
@@ -172,7 +177,7 @@ with $\eta_\alpha \geq 1$ and $\eta_\beta \in (0, 1]$.
 | Crossbar (NVLink + NVSwitch, no SHARP) | 1.00 | 0.80 | NCCL-tests H100 AR busbw 360 / 450 GB/s |
 | NVLS (NVLink SHARP, in-network reduction) | 1.00 | 0.52 | NVLS busbw 470 / DBT 360 GB/s, 1.3× lift / framing |
 | Torus (off-prefix + concurrent groups) | 1.20 | 0.60 | TPU v4 twisted-vs-untwisted 1.63× upper bound |
-| Fat-tree / Clos upper tier at oversubscription $s$ | 1.00 | $\min(\eta_\beta^{\mathrm{hw}}, 1/s)$ | structural |
+| Fat-tree / Clos upper tier at oversubscription $s$ | 1.10–1.30 | $\min(\eta_\beta^{\mathrm{hw}}, 1/s)$ | structural (`05_contention_and_congestion.md` §4.2) |
 
 **Per-tier η in a hierarchy.** Each phase of the §6 hierarchical decomposition uses its own tier's $(\eta_\alpha^{\mathrm{tier}}, \eta_\beta^{\mathrm{tier}})$.
 
@@ -183,8 +188,8 @@ See `05_contention_and_congestion.md` §4 for the full calibration profile and �
 ## Further reading
 
 - `01_collective_algorithms.md` — α-β model and per-primitive algorithm derivations; algbw / busbw appendix.
-- `02_topology_mapping.md` — single-tier specializations (star, torus, mesh) and the $N = 512$ ideal comparison.
+- `02_topology_mapping.md` — single-tier specializations (star, torus, mesh) and the per-topology cost summary (§5.1).
 - `03_hierarchical_topologies.md` — multi-tier Clos / fat-tree, composition rules, NVL72 SuperPOD case study, INC at inner / outer tier.
-- `04_in_network_collectives.md` — SHARP-class INC mechanics, AR-only BW-eff doubling, per-primitive ceilings, scale-up vs scale-out.
+- `04_in_network_collectives.md` — SHARP-class INC mechanics, AR-only BW-eff doubling, per-primitive ceilings, scale-up vs scale-out, and the ideal $N = 512$ ladder (§3.1).
 - `05_contention_and_congestion.md` — η calibration, per-tier η on hierarchies, realistic re-run of the $N = 512$ ladder.
 - `references.md` — primary sources for each formula and empirical value.
