@@ -137,10 +137,10 @@ class Hierarchical(unittest.TestCase):
     """03_hierarchical_topologies.md §2.1 case study: N=144, L=2, NVL72 + IB."""
 
     ARGS = dict(M=16e6, N=144, L=2, alpha_inner=0.5e-6, bw_inner=900e9,
-                alpha_outer=2e-6, bw_outer=50e9)
+                alpha_outer=2e-6, bw_outer=100e9)
 
     def test_ar_case_study(self):
-        self.assertAlmostEqual(us(cc.hierarchical_all_reduce_ring_ring(**self.ARGS)), 114.5, delta=0.1)
+        self.assertAlmostEqual(us(cc.hierarchical_all_reduce_ring_ring(**self.ARGS)), 112.28, delta=0.01)
 
     def test_ag_and_rs_are_half_of_ar(self):
         ar = cc.hierarchical_all_reduce_ring_ring(**self.ARGS)

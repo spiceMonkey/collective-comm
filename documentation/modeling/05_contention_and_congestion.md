@@ -73,7 +73,7 @@ These are unavoidable without different silicon or different fabric architecture
 
 ### 2.1 Link BW utilization ceiling
 
-Nominal per-link bandwidth is set by pin count $\times$ signaling rate, but the fraction a collective actually sees is discounted by framing overheads, endpoint DMA efficiency, and flow-control headroom required to keep the link from stalling. NCCL-tests on an H100 NVLink4 node measures AR busbw $\approx 360\\,\mathrm{GB/s}$ against $450\\,\mathrm{GB/s}$ raw unidirectional link BW — a baseline $\eta_\beta \approx 0.80$ that shows up *without any concurrency at all*. This is the floor the software stack cannot beat: even a single TP AR on an otherwise-idle node pays it.
+Nominal per-link bandwidth is set by pin count $\times$ signaling rate, but the fraction a collective actually sees is discounted by framing overheads, endpoint DMA efficiency, and flow-control headroom required to keep the link from stalling. Users running NCCL-tests on 8-GPU NVLink4 servers (H100 class) report AR busbw topping out around $360\\,\mathrm{GB/s}$ against $450\\,\mathrm{GB/s}$ raw unidirectional link BW [NCCL-NVLS-REPORTS] — a baseline $\eta_\beta \approx 0.80$ that shows up *without any concurrency at all*. This is the floor the software stack cannot beat: even a single TP AR on an otherwise-idle node pays it.
 
 ### 2.2 Switch/fabric congestion under load
 
@@ -128,15 +128,17 @@ Both default to 1.0, which recovers the ideal model. The cleanest way to apply t
 
 ### 4.1 Calibration from public benchmarks
 
-A representative $\eta$ profile calibrated from public measurements:
+A representative $\eta$ profile calibrated from publicly reported measurements:
 
 | Fabric | $\eta_\alpha$ | $\eta_\beta$ | Source |
 |---|---|---|---|
-| Crossbar (NVLink+NVSwitch, no SHARP) | 1.00 | 0.80 | NCCL-tests H100 AR busbw 360 GB/s measured vs 450 GB/s peak → 0.80 |
-| NVLS (NVLink SHARP, in-network reduction) | 1.00 | 0.52 | NVLS busbw 470 GB/s measured vs DBT 360 GB/s ($\sim 1.3\times$ lift) on same hardware; back-solves to $\eta_\beta^{\mathrm{INC}} \approx 1.3 \cdot \eta_\beta^{\mathrm{DBT}} / 2 = 0.52$ under the $n_\beta^{\mathrm{INC}} = 1$ framing |
+| Crossbar (NVLink+NVSwitch, no SHARP) | 1.00 | 0.80 | Community-reported NCCL-tests AR busbw ≈ 360 GB/s vs 450 GB/s peak on 8-GPU NVLink4 servers → 0.80 [NCCL-NVLS-REPORTS] |
+| NVLS (NVLink SHARP, in-network reduction) | 1.00 | 0.52 | Community-reported NVLS busbw ≈ 470 GB/s vs ≈ 360 GB/s without NVLS ($\sim 1.3\times$ lift) on the same class of hardware [NCCL-NVLS-REPORTS]; back-solves to $\eta_\beta^{\mathrm{INC}} \approx 1.3 \cdot \eta_\beta^{\mathrm{DBT}} / 2 = 0.52$ under the $n_\beta^{\mathrm{INC}} = 1$ framing |
 | Torus (off-prefix + concurrent groups) | 1.20 | 0.60 | TPU v4 twisted-vs-untwisted 1.63× A2A reported gap, interpreted as upper-bound $\eta_\beta \approx 1/1.63 \approx 0.6$ under adversarial layouts |
 
 **Why $\eta_\beta^{\mathrm{INC}} < \eta_\beta^{\mathrm{DBT}}$ even though INC wins.** $\eta_\beta$ is measured against *raw* link BW, and the algorithmic factor sits in $n_\beta$. DBT's $n_\beta = 2$ already bakes in a 2× slack, so its $\eta_\beta = 0.80$ applies to a target that was never the full link. INC's $n_\beta = 1$ attempts the full link, and switch-ALU throughput plus multicast contention keep it from fully realizing that — so its $\eta_\beta$ looks lower, even though its *realized* per-rank BW ($0.52 \cdot \mathrm{BW}$) still beats DBT's ($0.80 \cdot \mathrm{BW} / 2 = 0.40 \cdot \mathrm{BW}$) by $\sim 1.3\times$.
+
+**Provenance.** The two NVLink rows rest on user-reported NCCL-tests runs in NVIDIA's public issue trackers, not on vendor-published benchmarks: an 8-GPU run with NVLS enabled reports AR busbw of 470–482 GB/s for 1–8 GB messages, with the reporter putting the practical maximum without NVLS near 360 GB/s against a 450 GB/s theoretical limit; a separate 8×H100 report sees bus bandwidth go from about 330 to about 430 GB/s when NVLS is switched on — the same $1.3\times$ ratio [NCCL-NVLS-REPORTS]. NVIDIA's NCCL-tests documentation defines busbw but publishes no reference numbers [NCCL-TESTS]. Treat 0.80 and 0.52 as indicative. The NVLS back-solve also treats the software all-reduce as moving exactly $2M$ per rank; at the 8-GPU size of these reports the busbw normalization is $2(N-1)/N = 1.75$, and using it instead gives $\eta_\beta^{\mathrm{INC}} \approx 1.3 \cdot 0.80 / 1.75 \approx 0.59$ — the series keeps 0.52, the more conservative reading.
 
 **These are worst-case-realistic, not typical.** A well-tuned deployment with prefix-aligned groups (§3.1) and link-disjoint concurrent groups (§3.2) will see smaller torus $\eta$ penalties — the profile is a lower bound on performance, not an expectation.
 
@@ -188,7 +190,7 @@ Using the realistic profile from §4.1, re-run the AR ladder from `04_in_network
 |---|---|---|---|---|---|---|---|---|---|---|
 | Hypothetical star + NVLS (INC) | 2 | 1 | 1 μs | 17.8 μs | **18.8 μs** | 1.00 | 0.52 | 1 μs | 34.2 μs | **35 μs** |
 | Star + DBT (NCCL) | 18 | 2 | 9 μs | 35.6 μs | **45 μs** | 1.00 | 0.80 | 9 μs | 44.4 μs | **53 μs** |
-| Torus $8^3$ + dim-ring | 42 | 2 | 21 μs | 35.5 μs | **57 μs** | 1.20 | 0.60 | 25.2 μs | 59.1 μs | **84 μs** |
+| Torus $8^3$ + dim-ring | 42 | 2 | 21 μs | 35.5 μs | **56.5 μs** | 1.20 | 0.60 | 25.2 μs | 59.1 μs | **84 μs** |
 
 ![Ideal and realistic all-reduce cost for five fabric and algorithm pairings, with the percentage inflation](assets/charts/ar_ideal_vs_realistic.svg)
 
@@ -206,11 +208,11 @@ Using the realistic profile from §4.1, re-run the AR ladder from `04_in_network
 |---|---|---|---|
 | Star + INC | 18.8 μs | 35 μs | — |
 | Star + DBT | 45 μs | 53 μs | $2.4\times$ → $1.5\times$ |
-| Torus dim-decomp | 57 μs | 84 μs | $3.0\times$ → $2.4\times$ |
+| Torus dim-decomp | 56.5 μs | 84 μs | $3.0\times$ → $2.4\times$ |
 
-**Takeaway:** the ideal-model ranking is preserved — INC < DBT < torus — but the margins compress *toward* INC as realistic contention kicks in. This is the mirror image of the naive expectation. INC's ideal ceiling is the highest above its realistic cost (87% inflation) because its BW term is closest to the raw-link limit and has nowhere left to hide; DBT and torus start further from their limits and absorb contention into already-padded BW terms. The gap between INC and the next-best software collective compresses from $2.4\times$ to $1.5\times$, and the gap to torus from $3.0\times$ to $2.4\times$ — INC is still the winner, but the ceiling-vs-realized story flagged in `04_in_network_collectives.md §4` (limit 6) is where most of the "marketed 2× vs measured 1.3×" NVLS lift goes.
+**Takeaway:** the ideal-model ranking is preserved — INC < DBT < torus — but the margins compress *toward* INC as realistic contention kicks in. This is the mirror image of the naive expectation. INC's ideal ceiling is the highest above its realistic cost (87% inflation) because its BW term is closest to the raw-link limit and has nowhere left to hide; DBT and torus start further from their limits and absorb contention into already-padded BW terms. The gap between INC and the next-best software collective compresses from $2.4\times$ to $1.5\times$, and the gap to torus from $3.0\times$ to $2.4\times$ — INC is still the winner, but the ceiling-vs-realized story flagged in `04_in_network_collectives.md §4` (limit 6) is where most of the "2× ceiling vs ~1.3× reported" NVLS lift goes.
 
-The star-vs-torus margin moves the other way — it widens: star+DBT vs torus goes from 45 vs 57 μs (~27% gap) ideal to 53 vs 84 μs (~58% gap) realistic, because torus pays $\eta$ at both $\alpha$ and BW while star+DBT only pays it on BW. The "star vs torus" decision under realistic $\eta$ is more contention-sensitive than the ideal numbers suggest.
+The star-vs-torus margin moves the other way — it widens: star+DBT vs torus goes from 45 vs 56.5 μs (~27% gap) ideal to 53 vs 84 μs (~58% gap) realistic, because torus pays $\eta$ at both $\alpha$ and BW while star+DBT only pays it on BW. The "star vs torus" decision under realistic $\eta$ is more contention-sensitive than the ideal numbers suggest.
 
 ### 5.4 AG / RS and A2A under realistic $\eta$
 
@@ -235,7 +237,7 @@ The star-vs-torus margin moves the other way — it widens: star+DBT vs torus go
 Three observations:
 
 - **AG / RS margins are already tight and stay tight.** Star INC (23.2 μs) vs star RHD (26.7 μs) vs torus (42.2 μs). The ideal $1.2\times$ INC-vs-RHD gap compresses slightly to $1.15\times$ under realistic $\eta$ — $\alpha$ savings are preserved (INC still wins on $n_\alpha$), but both rows hit the same BW floor so contention doesn't open the gap. At this $M$ the AG / RS cost is BW-dominated, but the BW term is common to every contender, so the whole INC-vs-software fight happens on the $\alpha$ side.
-- **A2A ranking holds torus under any realistic scoring.** Ideal: torus 23.8 μs < pairwise 273 μs. Realistic: torus 36.8 μs < pairwise 278 μs — ordering preserved, but torus's $\sim 11.5\times$ ideal advantage over the shipped NCCL pairwise compresses to $\sim 7.5\times$ under $\eta$ because pairwise's $\alpha$-dominated cost absorbs contention only on the tiny BW term while torus pays $\eta$ on both. With no HW-A2A path on shipping NVSwitch Gen4 / Quantum-X800 hardware, the $8^3$ torus is the only option here that avoids the $(N-1)\\,\alpha$ serial-send term (its $d_{\max}/8$ bisection coefficient is $1\times$ at this shape); this is the forward-looking reason Rubin-generation HW-A2A and Tomahawk Ultra's INC A2A exist, and the main A2A mitigation until they ship at scale.
+- **A2A ranking holds torus under any realistic scoring.** Ideal: torus 23.8 μs < pairwise 273 μs. Realistic: torus 36.8 μs < pairwise 278 μs — ordering preserved, but torus's $\sim 11.5\times$ ideal advantage over the shipped NCCL pairwise compresses to $\sim 7.5\times$ under $\eta$ because pairwise's $\alpha$-dominated cost absorbs contention only on the tiny BW term while torus pays $\eta$ on both. With no HW-A2A path on shipping hardware (NVSwitch, Quantum-X800 and Tomahawk Ultra all lack one), the $8^3$ torus is the only option here that avoids the $(N-1)\\,\alpha$ serial-send term (its $d_{\max}/8$ bisection coefficient is $1\times$ at this shape) — the gap a hardware A2A primitive (`04_in_network_collectives.md` §1.3) would close.
 - **Realistic-$\eta$ collapses the cross-primitive ordering into a simple rule.** AR wins by ~$1.5\times$ on INC-capable star; AG / RS wins by ~$1.2\times$ on INC (for RS, only under the optimistic $\eta_\beta = 0.80$ assumption above); A2A wins by ~$7.5\times$ on the $8^3$ torus (no INC help on shipping NVSwitch / Quantum-X800 HW). The realistic $\eta$ profile doesn't reshuffle the winner within each primitive, but it moves the margins unevenly: INC's lead over software-on-star compresses, software-on-star's lead over torus widens (INC-vs-torus compresses for AR and widens for AG / RS), and torus's A2A lead compresses — which directly feeds the topology-choice Pareto sweep of `03_hierarchical_topologies.md §3.3` and §7 below.
 
 ---
@@ -290,4 +292,4 @@ Cases where $\eta$-based ranking is **not enough** and you should escalate to re
 - **`04_in_network_collectives.md` §1** — SHARP / NVLS does the reduction in the switch itself, removing the per-step endpoint $\alpha$ that contention inflates; on the BW side the §4.1 calibration gives NVLS the lowest $\eta_\beta$ (0.52), because its $n_\beta = 1$ target is the full link.
 - **`03_hierarchical_topologies.md` §3.2** — how the $\eta$ profile here generalizes when topologies compose across tiers: each tier carries its own $(\eta_\alpha, \eta_\beta)$, and the hierarchical cost rule propagates them per phase.
 - **`02_topology_mapping.md` §5.2** — the four ways the ideal-$\eta$ model breaks (concurrent groups, off-prefix layouts, skewed A2A, mixed traffic), foreshadowed there and priced quantitatively in this note.
-- **`references.md`** — NCCL-tests methodology and TPU v4 paper for the calibration sources.
+- **`references.md`** — the NCCL-tests methodology, the community NVLS reports and the TPU v4 paper behind the calibration.

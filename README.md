@@ -34,10 +34,10 @@ If you've ever wondered:
 
 | Switch capability | Collectives it accelerates | Hardware | Bandwidth effect | Cost functions |
 |---|---|---|---|---|
-| In-network reduction (switch ALU) | Reduce, RS | NVLS, Quantum SHARP, Tomahawk Ultra | none — α only | `inc_reduce`, `inc_reduce_scatter` |
+| In-network reduction (switch ALU) | Reduce, RS | NVLS, Quantum SHARP | none — α only | `inc_reduce`, `inc_reduce_scatter` |
 | Switch multicast | BC, AG | NVLS, Quantum SHARP, Tomahawk Ultra | none — α only | `inc_broadcast`, `inc_all_gather` |
 | ALU + multicast, fused | AR | NVLS, Quantum SHARP, Tomahawk Ultra | `2·M/BW` → `M/BW` | `inc_all_reduce` |
-| Crossbar scatter-gather (hardware A2A) | A2A | Tomahawk Ultra; planned for Rubin-generation NVSwitch | none — α only | `inc_a2a` |
+| Crossbar scatter-gather (hardware A2A) | A2A | none shipping — a what-if primitive | none — α only | `inc_a2a` |
 
 **Algorithms per collective**
 
@@ -160,9 +160,9 @@ from core.collective_cost import hierarchical_all_reduce_ring_ring
 t = hierarchical_all_reduce_ring_ring(
     M=16e6, N=576, L=8,                  # 8 outer groups, 72 inner each
     alpha_inner=0.5e-6, bw_inner=900e9,  # NVLink-class
-    alpha_outer=1.0e-6, bw_outer=50e9,   # 400 Gbps IB-class
+    alpha_outer=2.0e-6, bw_outer=100e9,  # 800 Gb/s XDR InfiniBand, same-leaf path
 )
-print(f"hierarchical AR: {t * 1e6:.1f} μs")  # 127.8
+print(f"hierarchical AR: {t * 1e6:.1f} μs")  # 138.0
 ```
 
 The outer sub-AR ships only the *telescoped* payload `M·L/N` — see `documentation/modeling/03_hierarchical_topologies.md` §2.1 for the derivation.
@@ -192,7 +192,7 @@ The notebooks reproduce these exactly — useful as test oracles when changing c
 | star + ring AR | 546 μs |
 | star + DBT (pipelined, n_β=2) | 45 μs |
 | 512-port star + NVLS (INC) | 18.8 μs |
-| torus 8³ + dim-decomp ring | 57 μs |
+| torus 8³ + dim-decomp ring | 56.5 μs |
 
 **Realistic η (`documentation/modeling/05_contention_and_congestion.md` §5.1)**, same anchor under the §4.1 calibration:
 

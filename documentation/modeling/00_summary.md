@@ -149,7 +149,7 @@ A2A is the outlier: it cannot telescope, so per-tier ranks see $(N-1)/N \cdot M/
 
 ## 7. In-network collectives (INC)
 
-INC moves the reduction or replication into the switch ASIC (NVLS / Quantum SHARP / Spectrum-X SHARP / Tomahawk Ultra). On a single-switch star, $n_\alpha$ collapses from $O(N)$ or $O(\log N)$ down to $2$ for every INC primitive (one hop into the switch, one hop out; α-speedups below are quoted at equal per-hop α), and AR uniquely also gets a BW-eff doubling because the switch fuses the reduce and broadcast halves.
+INC moves the reduction or replication into the switch ASIC (NVLS / Quantum SHARP / Tomahawk Ultra). On a single-switch star, $n_\alpha$ collapses from $O(N)$ or $O(\log N)$ down to $2$ for every INC primitive (one hop into the switch, one hop out; α-speedups below are quoted at equal per-hop α), and AR uniquely also gets a BW-eff doubling because the switch fuses the reduce and broadcast halves.
 
 | Primitive | Required HW | α term (INC) | $\mathrm{BW_{eff}}$ (INC) | Speedup vs software |
 |---|---|---|---|---|
@@ -158,9 +158,9 @@ INC moves the reduction or replication into the switch ASIC (NVLS / Quantum SHAR
 | RS | switch ALU | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim (N-1)/2$ ×; BW: 1× |
 | AG | multicast xbar | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim (N-1)/2$ ×; BW: 1× |
 | BC | multicast xbar | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim \log_2 N / 2$ ×; BW: 1× |
-| A2A | crossbar scatter-gather (HW A2A; emerging) | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ (per-port bound) | α: $\sim (N-1)/2$ ×; BW: 1× |
+| A2A | crossbar scatter-gather (HW A2A; hypothetical) | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ (per-port bound) | α: $\sim (N-1)/2$ ×; BW: 1× |
 
-**Scope.** SHARP-class INC is single-switch-domain (NVLS) or SHARP-enabled aggregation tree (Quantum SHARP, Spectrum-X SHARP). HW A2A ships today on Tomahawk Ultra and is on Rubin's roadmap. Cross-domain traffic falls back to software DBT / ring.
+**Scope.** SHARP-class INC is single-switch-domain (NVLS) or SHARP-enabled aggregation tree (Quantum SHARP). HW A2A is a what-if primitive — no shipping switch documents one. Cross-domain traffic falls back to software DBT / ring.
 
 ---
 
@@ -174,8 +174,8 @@ with $\eta_\alpha \geq 1$ and $\eta_\beta \in (0, 1]$.
 
 | Fabric / regime | $\eta_\alpha$ | $\eta_\beta$ | Calibration source |
 |---|---|---|---|
-| Crossbar (NVLink + NVSwitch, no SHARP) | 1.00 | 0.80 | NCCL-tests H100 AR busbw 360 / 450 GB/s |
-| NVLS (NVLink SHARP, in-network reduction) | 1.00 | 0.52 | NVLS busbw 470 / DBT 360 GB/s, 1.3× lift / framing |
+| Crossbar (NVLink + NVSwitch, no SHARP) | 1.00 | 0.80 | community-reported AR busbw ≈ 360 of 450 GB/s on 8-GPU NVLink4 servers |
+| NVLS (NVLink SHARP, in-network reduction) | 1.00 | 0.52 | community-reported NVLS busbw ≈ 470 vs ≈ 360 GB/s without (1.3× lift) |
 | Torus (off-prefix + concurrent groups) | 1.20 | 0.60 | TPU v4 twisted-vs-untwisted 1.63× upper bound |
 | Fat-tree / Clos upper tier at oversubscription $s$ | 1.10–1.30 | $\min(\eta_\beta^{\mathrm{hw}}, 1/s)$ | structural (`05_contention_and_congestion.md` §4.2) |
 
