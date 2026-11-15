@@ -1112,7 +1112,7 @@ Workloads that run A2A back-to-back (e.g., MoE dispatch followed by a reverse A2
 
 ### 7.3 Comparison and practical adoption
 
-Two software forms sit on the table: ring relay (§7.1) and pairwise direct-send (§7.2). Unlike AR (§5.3) there is no SHARP-class in-network option, and no hardware path that lifts A2A's BW side — the emerging hardware-A2A primitive collapses the α term only, for structural reasons summarized at the end of this section. One MPI-era variant — Bruck — is omitted from the table because NCCL / RCCL do not ship it; its $O(\log N)$-latency / $O(\log N)$-BW-coefficient derivation and the reasoning that keeps it out of GPU collective libraries live in [Appendix B.5](#b5-bruck-a2a).
+Two software forms sit on the table: ring relay (§7.1) and pairwise direct-send (§7.2). Unlike AR (§5.3) there is no SHARP-class in-network option, and no hardware path that lifts A2A's BW side — a hardware-A2A primitive (hypothetical today) would collapse the α term only, for structural reasons summarized at the end of this section. One MPI-era variant — Bruck — is omitted from the table because NCCL / RCCL do not ship it; its $O(\log N)$-latency / $O(\log N)$-BW-coefficient derivation and the reasoning that keeps it out of GPU collective libraries live in [Appendix B.5](#b5-bruck-a2a).
 
 | Algorithm | α term | BW term | Regime / adoption |
 |---|---|---|---|
@@ -1131,7 +1131,7 @@ Two software forms sit on the table: ring relay (§7.1) and pairwise direct-send
 
 The ring relay remains the schedule of choice where the fabric forces it — pure-ring or torus topologies without full bisection — which is exactly its role in `02_topology_mapping.md §3.6`.
 
-**Switch primitives don't help A2A on the BW side.** Unlike BC / AR / AG, A2A benefits from neither the switch-ALU reduction primitive nor switch-multicast replication: the $N(N{-}1)$ per-destination payloads are all distinct (no shared payload for the switch to multicast) and there is no reduction (no aggregation for the switch ALU to compute). The BW term is structurally fixed at $(N{-}1)/N \cdot M/\mathrm{BW}$ per rank regardless of switch capability. A hardware A2A primitive (hypothetical — no shipping switch documents one) would collapse the α side only — to $\approx 2\\,\alpha_\mathrm{switch}$ (one hop into the switch, one hop out) instead of $(N{-}1)$ endpoint-scheduled rounds — not the BW side. See `04_in_network_collectives.md §1.3` for the hardware-A2A mechanism and §1.4 there for the per-primitive summary.
+**Switch primitives don't help A2A on the BW side.** Unlike BC / AR / AG, A2A benefits from neither the switch-ALU reduction primitive nor switch-multicast replication: the $N(N{-}1)$ per-destination payloads are all distinct (no shared payload for the switch to multicast) and there is no reduction (no aggregation for the switch ALU to compute). The BW term is structurally fixed at $(N{-}1)/N \cdot M/\mathrm{BW}$ per rank regardless of switch capability. A hardware A2A primitive (hypothetical — no vendor documents one as such) would collapse the α side only — to $\approx 2\\,\alpha_\mathrm{switch}$ (one hop into the switch, one hop out) instead of $(N{-}1)$ endpoint-scheduled rounds — not the BW side. See `04_in_network_collectives.md §1.3` for the hardware-A2A mechanism and §1.4 there for the per-primitive summary.
 
 ---
 
@@ -1714,7 +1714,7 @@ Example: on an $N = 100$ AR measurement with algbw $= 450\\,\mathrm{GB/s}$, busb
 
 **Why both metrics coexist — and when to use which.** algbw is the right number for performance modeling: step time is (compute + communication), and the communication term is $M / \mathrm{algbw}$. busbw is the right number for diagnosing *whether the fabric ceiling is reached*: it normalizes out the primitive's structural $n_\beta$ factor (e.g., AR's 2× from the RS + AG decomposition) so the resulting number is directly comparable across primitives to the fabric's peak link BW. A collective whose busbw equals peak link BW has hit the fabric ceiling; one whose busbw is well below peak has headroom that a better algorithm or better placement might recover.
 
-This is the measurement convention that `05_contention_and_congestion.md §4.1` uses to back out $\eta_\beta$: realized busbw divided by peak link BW gives the contention-coefficient ratio directly.
+This is the measurement convention that `05_contention_and_congestion.md §4.1` uses to back out $\eta_\beta$: realized busbw divided by peak link BW gives the contention-coefficient ratio directly for a schedule whose $n_\beta$ equals $C(N)$. In general, with $t = n_\beta M / (\eta_\beta \mathrm{BW})$, $\eta_\beta = \mathrm{busbw} \cdot n_\beta / (C(N) \cdot \mathrm{BW})$ — which matters for in-network AR ($n_\beta = 1$), whose busbw can exceed the link rate.
 
 ---
 

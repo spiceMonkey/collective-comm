@@ -29,7 +29,7 @@ Self-contained bibliography for `01–05` in this folder. Every non-obvious equa
 
 **[MAGPIE]** Kielmann, T., Hofman, R.F.H., Bal, H.E., Plaat, A., & Bhoedjang, R.A.F. (1999). *MagPIe: MPI's Collective Communication Operations for Clustered Wide Area Systems.* PPoPP 1999, pp. 131–140. → Hierarchical collective algorithms for wide-area clusters with heterogeneous tier bandwidths; introduces the principle of "do most of the work on the fastest tier" that informs the inner-vs-outer tier tradeoff in `03_hierarchical_topologies.md` §2. <https://doi.org/10.1145/301104.301116>
 
-**[ZGGT09]** Zhu, H., Goodell, D., Gropp, W., & Thakur, R. (2009). *Hierarchical Collectives in MPICH2.* EuroPVM/MPI 2009, LNCS 5759. → Collectives restructured into an intra-node phase and an inter-node phase for clusters of multi-core nodes, so that the slower network carries one message per node. Backs up the two-phase composition of `03_hierarchical_topologies.md` §2. <https://doi.org/10.1007/978-3-642-03770-2_41>
+**[ZGGT09]** Zhu, H., Goodell, D., Gropp, W., & Thakur, R. (2009). *Hierarchical Collectives in MPICH2.* EuroPVM/MPI 2009, LNCS 5759. → An implementation of the MPI collectives on message-passing primitives that exploits the two-level hierarchy of multi-core clusters (within a node, between nodes). Backs up the tier-aware framing of `03_hierarchical_topologies.md` §2. <https://doi.org/10.1007/978-3-642-03770-2_41>
 
 **[HAN]** Luo, X., Wu, W., Bosilca, G., Pei, Y., Cao, Q., Patinyasakdikul, T., Zhong, D., & Dongarra, J. (2020). *HAN: a Hierarchical AutotuNed Collective Communication Framework.* IEEE CLUSTER 2020. → Open MPI's hierarchical collective framework: a collective is split by hardware level (intra-node, inter-node), each level running its own tuned algorithm. Backs up the "different primitive per tier" framing of `03_hierarchical_topologies.md` §2. <https://ieeexplore.ieee.org/document/9229573>
 
@@ -65,9 +65,9 @@ Self-contained bibliography for `01–05` in this folder. Every non-obvious equa
 
 **[NVLINK-SHARP]** NVIDIA Corporation. (2023–2025). *NVLink SHARP (NVLS).* NCCL 2.17.1 release notes (NVLink SHARP reduction / broadcast support for intra-node all-reduce); GB200 NVL Multi-Node Tuning Guide, NCCL chapter (NVLS is enabled by default where supported; `NCCL_NVLS_ENABLE`). → NVSwitch-based in-network reduction and multicast. Backs up the NVLS mechanism in `04_in_network_collectives.md` §1.1 and the scale-up INC summary in `04_in_network_collectives.md` §2.1. Neither source publishes busbw numbers; the measured lift quoted in this series comes from [NCCL-NVLS-REPORTS]. <https://docs.nvidia.com/deeplearning/nccl/release-notes/rel_2-17-1.html>, <https://docs.nvidia.com/multi-node-nvlink-systems/multi-node-tuning-guide/nccl.html>
 
-**[NCCL-NVLS-REPORTS]** Community reports in NVIDIA's public issue trackers (not vendor-published benchmarks). `NVIDIA/nccl-tests` issue #312 (May 2025): an 8-GPU all-reduce run with NVLS enabled reports busbw of 470–482 GB/s at 1–8 GB messages; the reporter gives 450 GB/s as the theoretical limit and about 360 GB/s as the practical maximum without NVLS. `NVIDIA/nccl` issue #1221 (March 2024): on 8×H100 nodes, enabling NVLS moved bus bandwidth from about 330 to about 430 GB/s. → The ~1.3× NVLS lift and the 360 / 450 ratio behind the crossbar $\eta_\beta \approx 0.80$ and the NVLS $\eta_\beta \approx 0.52$ in `05_contention_and_congestion.md` §4.1, and the lift quoted in `03_hierarchical_topologies.md` §3; indicative values only. <https://github.com/NVIDIA/nccl-tests/issues/312>, <https://github.com/NVIDIA/nccl/issues/1221>
+**[NCCL-NVLS-REPORTS]** Community reports in NVIDIA's public issue trackers (not vendor-published benchmarks). `NVIDIA/nccl-tests` issue #312 (May 2025): an 8-GPU all-reduce run with NVLS enabled reports busbw of 470–482 GB/s at 1–8 GB messages; the reporter does not name the GPU model, gives 450 GB/s as the theoretical figure for H20 / H100 / H200, and states (without measuring it in that run) a typical practical maximum of about 360 GB/s. `NVIDIA/nccl` issue #1221 (March 2024): on 8×H100 nodes, enabling NVLS moved bus bandwidth from about 330 to about 430 GB/s on one or two nodes (no gain beyond two). → The ~1.3× NVLS lift and the 360 / 450 ratio behind the crossbar $\eta_\beta \approx 0.80$ and the NVLS $\eta_\beta \approx 0.52$ in `05_contention_and_congestion.md` §4.1, and the lift quoted in `03_hierarchical_topologies.md` §3; indicative values only. <https://github.com/NVIDIA/nccl-tests/issues/312>, <https://github.com/NVIDIA/nccl/issues/1221>
 
-**[NCCL-NVLS-2.27]** NVIDIA Corporation. (2025). *Enabling Fast Inference and Resilient Training with NCCL 2.27.* NVIDIA Technical Blog, May 2025. → Up to 2.5× improvement on small-to-medium messages in Symmetric Memory configurations with NVLS. Backs up the small-$M$ speedup regime discussion in `04_in_network_collectives.md` §3.2. <https://developer.nvidia.com/blog/enabling-fast-inference-and-resilient-training-with-nccl-2-27/>
+**[NCCL-NVLS-2.27]** NVIDIA Corporation. (2025). *Enabling Fast Inference and Resilient Training with NCCL 2.27.* NVIDIA Technical Blog, Jul 2025. → NCCL 2.27 brings SHARP support to AllGather and ReduceScatter when NVLink SHARP is combined with IB SHARP; its symmetric-memory kernels give up to 2.5× on small-to-medium messages. Backs up the Quantum SHARP entry in `04_in_network_collectives.md` §2.2. <https://developer.nvidia.com/blog/enabling-fast-inference-and-resilient-training-with-nccl-2-27/>
 
 **[TH-ULTRA]** Broadcom. (2025). *Broadcom Ships Tomahawk Ultra: Reimagining the Ethernet Switch for HPC and AI Scale-up.* Press release, 15 Jul 2025. → Ethernet switch ASIC with in-network collectives — the release names AllReduce, Broadcast and AllGather as operations executed on the chip, and no all-to-all; 51.2 Tbps, 250 ns switch latency. Backs up the Tomahawk Ultra entries in `04_in_network_collectives.md` §1.1, §1.2 and §2.1, and the statement in §1.3 that it lists no all-to-all primitive. <https://investors.broadcom.com/news-releases/news-release-details/broadcom-ships-tomahawk-ultra-reimagining-ethernet-switch-hpc>
 
@@ -83,7 +83,7 @@ Self-contained bibliography for `01–05` in this folder. Every non-obvious equa
 
 **[H100-SPEC]** NVIDIA Corporation. (2022). *NVIDIA H100 Tensor Core GPU Architecture.* NVIDIA Whitepaper WP-10792-001. → H100 SXM5 NVLink 4.0: 900 GB/s bidirectional per GPU (450 GB/s unidirectional). Baseline "pre-NVLink5" BW numbers behind the calibration in `05_contention_and_congestion.md` §2.1 and §4.1. <https://resources.nvidia.com/en-us-tensor-core/nvidia-tensor-core-gpu-datasheet>
 
-**[QX800]** NVIDIA Corporation. (2024). *NVIDIA Quantum-X800 InfiniBand Platform / Q3400 Switch Series.* NVIDIA product pages and datasheet. → 144-port 800 Gbps (XDR) InfiniBand switch (air-cooled Q3400-RA plus a liquid-cooled variant); 115.2 Tbps aggregate bidirectional throughput; a two-level fat-tree of these switches connects up to 10,368 NICs; it is the compute-fabric switch of the DGX GB300 SuperPOD [DGX-SUPERPOD-GB300]. Backs up the 144-port ToR radix used in both pod-local and rail-optimized X800 layouts in `03_hierarchical_topologies.md` §1.1 and Appendix A. <https://www.nvidia.com/en-us/networking/quantum-x800/>
+**[QX800]** NVIDIA Corporation. (2024). *NVIDIA Quantum-X800 InfiniBand Switches* (Q3200-RA / Q3400-RA datasheet and product page). → Q3400-RA: 144 ports at 800 Gb/s (XDR) across 72 OSFP cages, 115.2 Tb/s throughput; a two-level fat-tree of these switches connects up to 10,368 NICs; the fourth generation of SHARP "adds support for FP8 precision and new collective operations, such as ReduceScatter and ScatterGather". The compute-fabric switch of the DGX GB300 SuperPOD [DGX-SUPERPOD-GB300]. Backs up the 144-port ToR radix in `03_hierarchical_topologies.md` §1.1 and Appendix A, and the SHARPv4 notes in `04_in_network_collectives.md` §1.3 and §2.2. <https://www.nvidia.com/en-us/networking/products/infiniband/quantum-x800/>
 
 ---
 
@@ -111,20 +111,20 @@ Where each source is cited or relied on in the series:
 | `[TRN2-ARCH]` | `02_topology_mapping.md` §3.4, §3.6 |
 | `[NEURON-CC]` | `02_topology_mapping.md` §3.4, §5.1, App. A |
 | `[DGX-SUPERPOD]` | `03_hierarchical_topologies.md` §1 |
-| `[DGX-SUPERPOD-GB200]` | `03_hierarchical_topologies.md` §1.1, App. A.4 |
-| `[DGX-SUPERPOD-GB300]` | `03_hierarchical_topologies.md` §1.1, App. A |
+| `[DGX-SUPERPOD-GB200]` | `03_hierarchical_topologies.md` §1.1, §1.2, App. A.4; `04_in_network_collectives.md` §2.2 |
+| `[DGX-SUPERPOD-GB300]` | `03_hierarchical_topologies.md` §1.1, §1.2, App. A |
 | `[NCCL-PXN]` | `03_hierarchical_topologies.md` §1.1, §2.2 |
 | `[META-RSC]` | `03_hierarchical_topologies.md` §1 |
 | `[NCCL-TESTS]` | `01_collective_algorithms.md` App. D; `05_contention_and_congestion.md` §4.1 |
-| `[SHARP-IB]` | `04_in_network_collectives.md` §1.1, §2.2 |
+| `[SHARP-IB]` | `04_in_network_collectives.md` §2.2 |
 | `[NVLINK-SHARP]` | `04_in_network_collectives.md` §1.1, §2.1 |
-| `[NCCL-NVLS-REPORTS]` | `03_hierarchical_topologies.md` §3; `05_contention_and_congestion.md` §2.1, §4.1 |
-| `[NCCL-NVLS-2.27]` | `04_in_network_collectives.md` §2.2, §3.2 |
+| `[NCCL-NVLS-REPORTS]` | `03_hierarchical_topologies.md` §3; `04_in_network_collectives.md` §1.4, §4; `05_contention_and_congestion.md` §2.1, §4.1 |
+| `[NCCL-NVLS-2.27]` | `04_in_network_collectives.md` §2.2 |
 | `[TH-ULTRA]` | `04_in_network_collectives.md` §1.1, §1.2, §1.3, §2.1 |
 | `[NVLINK5-SPEC]` | `02_topology_mapping.md` §2; `03_hierarchical_topologies.md` §1.1, §1.2 |
 | `[UCIE]` | `02_topology_mapping.md` §1.3, §4.1 |
-| `[H100-SPEC]` | `05_contention_and_congestion.md` §2.1, §4.1 |
-| `[QX800]` | `03_hierarchical_topologies.md` §1.1, App. A |
+| `[H100-SPEC]` | `05_contention_and_congestion.md` §2.1 |
+| `[QX800]` | `03_hierarchical_topologies.md` §1.1, App. A; `04_in_network_collectives.md` §1.3, §2.2 |
 
 ---
 
@@ -148,9 +148,10 @@ The following equations and empirical values were independently verified (not ju
 | DGX GB300 SuperPOD: ConnectX-8 at 800 Gb/s, 144-port Q3400, two leaves per rail per SU, 32 leaf + 18 spine at 2304 GPUs, spines shared across rails | `[DGX-SUPERPOD-GB300]` text, Table 3, Figure 8 | ✓ |
 | DGX GB200 SuperPOD: ConnectX-7 and QM9700 at 400 Gb/s, one leaf per rack per rail, core tier from 2 SUs | `[DGX-SUPERPOD-GB200]` | ✓ |
 | SHARP on Spectrum-X Ethernet | no NVIDIA source found | ✗ removed from the series |
-| Hardware A2A on a shipping switch | no source found; `[TH-ULTRA]` lists no all-to-all | ✗ reframed as a what-if primitive |
+| Hardware A2A on a shipping switch | `[TH-ULTRA]` names AllReduce / Broadcast / AllGather; `[QX800]` lists an undefined SHARPv4 "ScatterGather" | Not documented as an all-to-all collective; modeled as a what-if |
 
 ### Known numerical caveats (documented in-line)
 
+- Switch cut-through latencies (100–200 ns for NVSwitch, 200–400 ns or a rounded 0.5 μs for InfiniBand) are estimates: no vendor document read for this series states them, except Tomahawk Ultra's 250 ns `[TH-ULTRA]`. "NVSwitch Gen3 / Gen4" are this series' shorthand for the H100-era and NVL72-era NVLink switches; NVIDIA's NCCL guide speaks of NVLS on "NVLink Version 3 switches and later" `[NVLINK-SHARP]`.
 - The $\alpha$ values used in worked examples ($\alpha = 0.5\\,\mu$s intra-NVLink; $\alpha \approx 2\\,\mu$s / $8\\,\mu$s for the same-ToR / via-spine InfiniBand paths of `03_hierarchical_topologies.md` §1.2) are order-of-magnitude estimates; 0.5 μs corresponds to NVSwitch cut-through (~100 ns) plus endpoint software (~400 ns). Exact values depend on the NCCL path chosen at runtime. The model's conclusions are robust to $\pm 2\times$ variation on $\alpha$ at bulk payloads, where the bandwidth term dominates — above roughly 1 MB for INC AR and 4 MB for DBT AR at $N = 512$ (`04_in_network_collectives.md` §3.2); ring AR at $N = 512$ stays α-dominated up to about 230 MB.
 - The A2A on star entries in `02_topology_mapping.md` §2.5 and §5.1 use the per-rank pairwise direct-send formula (NVSwitch aggregate bisection saturated), appropriate for MoE workloads where all ranks participate simultaneously.

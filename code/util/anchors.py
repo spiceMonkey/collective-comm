@@ -24,9 +24,10 @@ class Anchors:
     # Torus / k-D mesh decomposition for the same N=512.
     dims: tuple = (8, 8, 8)
 
-    # Hierarchical (NVL72-style scale-up + InfiniBand scale-out), with the
-    # 03_hierarchical_topologies.md §1.2 values: α_leaf ≈ 2 μs for pods sharing
-    # a rail-leaf (α_spine ≈ 8 μs through the spine) and one 800 Gb/s XDR NIC.
+    # Hierarchical (NVLink-class inner tier + InfiniBand outer tier). The outer
+    # values are 03_hierarchical_topologies.md §1.2's α_leaf ≈ 2 μs (α_spine is
+    # ≈ 8 μs) and one 800 Gb/s XDR NIC — parameter values for the N = 512
+    # sweeps, not a claim about which pods share a leaf switch.
     L: int = 8                  # outer groups
     alpha_inner: float = 0.5e-6
     bw_inner: float = 900e9

@@ -139,7 +139,7 @@ Two-fabric structure (one NVL72 pod, 72 GPUs):
 | **Innermost** (scale-up) | NVLink Gen5 within the pod, 72 GPUs, 1800 GB/s per GPU bidirectional (900 GB/s per direction) |
 | Outer leaf | IB leaf / ToR — Quantum-X800 Q3400 (GB300 design); Quantum-2 QM9700 (GB200 design) |
 | Outer spine | IB spine — the same switch model as the leaf in each design |
-| Outer super-spine | Only when a deployment outgrows a 2-tier leaf-spine fabric: beyond 16 SUs (9,216 GPUs) on Quantum-X800; the GB200 / QM9700 design already adds a core tier at 2 SUs. The $L = 32$, 2304-GPU cluster of Appendix A needs none |
+| Outer super-spine | Only when a deployment outgrows a 2-tier leaf-spine fabric: beyond the 144 leaves (10,368 NICs) that a 144-port Quantum-X800 spine can serve — NVIDIA documents two tiers up to 16 SUs (9,216 GPUs); the GB200 / QM9700 design already adds a core tier at 2 SUs. The $L = 32$, 2304-GPU cluster of Appendix A needs none |
 
 **The common confusion — "leaf" ≠ "innermost tier."** In Clos literature, **leaf** is a position in the switched fabric — the *first* switch an endpoint hits. For NVL72 SuperPODs, that first switch is the IB ToR. But the *innermost tier of the overall hierarchy* is the NVSwitch/NVLink fabric, which sits **below** the NIC in the topology — intra-pod traffic never passes through the NIC or ToR at all. The IB ToR is the entry point of the *outer* tier, not the inside. The gap between the two tiers is large — roughly 9× in per-GPU per-direction BW (900 GB/s NVLink vs 100 GB/s XDR; 18× against a 50 GB/s NDR NIC) and several × in α (NVSwitch cut-through vs cross-pod IB path). §2 picks this up and shows how to compose collectives across tiers so that the fast inner fabric carries most of the work and the slow outer fabric is crossed as little as possible.
 
@@ -173,7 +173,7 @@ A natural first guess: attach all 72 NICs to one ToR. For full bisection ($s = 1
 
 Simple, but the entire NVL72 shares one failure domain (a single ToR), and no two pods ever share a ToR — every cross-pod path has to climb to the spine.
 
-**Layout 2 — Rail-optimized (NVIDIA SuperPOD reference [DGX-SUPERPOD-GB300]).** NICs at the same *position within a compute tray* across *different* NVL72 pods share one ToR. Each NVL72 compute tray holds 4 GPUs / 4 NICs, so each NIC goes to one of 4 rails. Every NVL72 is striped across 4 rail-ToRs, so any one ToR sees only 18 NICs per pod (one per tray), letting a 144-port X800 aggregate four pods on the same rail: NVIDIA's 8-rack Scalable Unit (SU, 576 GPUs) uses eight leaf switches, two per rail.
+**Layout 2 — Rail-optimized (NVIDIA SuperPOD reference [DGX-SUPERPOD-GB300]).** NICs at the same *position within a compute tray* across *different* NVL72 pods share one ToR. Each NVL72 compute tray holds 4 GPUs / 4 NICs, so each NIC goes to one of 4 rails. Every NVL72 is striped across 4 rail-ToRs, so any one ToR sees only 18 NICs per pod (one per tray), letting a 144-port X800 aggregate four pods on the same rail: NVIDIA's 8-rack Scalable Unit (SU, 576 GPUs) uses eight leaf switches, two per rail. (Four racks per leaf is read from that document's fabric diagram and port counts — 72 down-ports per leaf, 18 NICs per rack per rail — not from its text.)
 
 ```
    Rail-optimized fan-out (NVL72 striped across 4 rail-ToRs):
@@ -212,7 +212,7 @@ Simple, but the entire NVL72 shares one failure domain (a single ToR), and no tw
       └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘
            │            │            │            │
            ▼            ▼            ▼            ▼
-      ┌────┬────────────┬────────────┬────────────┬────┐
+      ┌────┴────────────┴────────────┴────────────┴────┐
       │           rail-i ToR_Z (Quantum-X800)          │   ← 144 ports:
       │                                                │     72 down = 4 × 18 NICs
       └───────────────────────┬────────────────────────┘     72 up  → IB spine
@@ -225,11 +225,11 @@ This is what makes "Same ToR" cross-pod traffic feasible: ToR_Z physically sees 
 
 **Traffic behavior under rail-optimized.** First, the NVLink rule: **intra-pod traffic (GPU_A ↔ GPU_B inside the same NVL72) always uses NVLink** — IB never enters the picture, regardless of rail assignment. The cases below are all *cross-pod*; they must use IB because NVLink does not extend off-pod, and the rail-optimized topology determines how many IB hops are needed.
 
-- **Cross-pod, same rail, same ToR** — NVL72_X and NVL72_Y both attach their rail-i NICs to the same physical ToR_Z: **2 hops** (NIC → ToR_Z → NIC). The IB spine is not needed because one ToR bridges both pods. This applies when up to 4 NVL72s share a rail's ToR (144-port X800 at $s = 1$: 72 down ÷ 18 NICs/pod = 4 pods).
+- **Cross-pod, same rail, same ToR** — NVL72_X and NVL72_Y both attach their rail-i NICs to the same physical ToR_Z: **2 hops** (NIC → ToR_Z → NIC). The IB spine is not needed because one ToR bridges both pods. This applies when up to 4 NVL72s share a rail's ToR (144-port X800 at $s = 1$: 72 down ÷ 18 NICs/pod = 4 pods). The path is read off the wiring — both pods' rail-i NICs are ports of one switch — rather than quoted: the reference architecture's text speaks only of traffic between racks going through the spine layer.
 - **Cross-pod, same rail, different ToRs** — once the rail spans more than 4 NVL72s, rail-i NICs spread across rail-i ToR_A and rail-i ToR_B: **4 hops** (NIC → ToR_A → IB spine → ToR_B → NIC). The spine is the only physical path between two same-rail ToRs.
 - **Cross-pod, cross-rail** — GPU_i on rail i in pod A ↔ GPU_j on rail j ≠ i in pod B. Two routes exist. (a) *Through the spine*: the spine layer is shared by all four rails (Appendix A.3), so a rail-i ToR reaches a rail-j ToR through any spine — **4 IB hops** (NIC → ToR_i → spine → ToR_j → NIC), even when the two pods sit under the same group of leaves; NVIDIA's reference architecture routes traffic between different rails through the spine layer [DGX-SUPERPOD-GB300]. (b) *NVLink rail bridge*: the source first sends over NVLink to the sibling GPU in its own tray whose NIC is on rail j, and that NIC sends on rail j — 1 NVLink hop + the same-rail IB path, which is **2 IB hops** (NIC → ToR_j → NIC) when pods A and B share a rail-j ToR and 4 when they don't. This is NCCL's PXN feature: a GPU uses a NIC that is not its own by first moving the data over NVLink, so that a message can stay on one rail's leaf switch and avoid the spine tier [NCCL-PXN]. The bridge costs one extra ~0.5 μs NVLink hop on top of the same-rail IB cost for that pod pair.
 
-NCCL's PXN (introduced in NCCL 2.12) exists to exploit this layout: it keeps cross-pod messages on a single rail-ToR where it can, instead of sending them up to the spine [NCCL-PXN]. A same-rail path needs no bridge hop at all, and for pods sharing a rail-ToR it skips the spine as well (2 IB hops, where the pod-local layout always needs 4). This is why rail-optimized is NVIDIA's reference layout, even though a lone pod then touches 4 ToRs instead of 1; at SU scale the two layouts need the same number of ToRs (32 at $L = 32$), since each 144-port ToR hosts 72 NICs either way.
+NCCL's PXN (NCCL 2.12) fits this layout: it moves data over NVLink to a GPU on the same rail as the destination and sends from there without crossing rails, which reduces traffic through the spine tier [NCCL-PXN]. (The blog describes 8-GPU DGX nodes; this note assumes the same mechanism for the four GPUs of an NVL72 compute tray.) A same-rail path needs no bridge hop at all, and for pods sharing a rail-ToR it skips the spine as well (2 IB hops, where the pod-local layout always needs 4). NVIDIA's stated case for rail-optimized fabrics is all-reduce performance with less interference between flows, and a cheaper network through lighter connections between rails [NCCL-PXN]. The price is that a lone pod touches 4 ToRs instead of 1; at SU scale the two layouts need the same number of ToRs (32 at $L = 32$), since each 144-port ToR hosts 72 NICs either way.
 
 **Bottom line on the 144-port ToR usage.** Both layouts use 144-port X800, but sized for different jobs:
 
@@ -265,7 +265,7 @@ Case studies plug in concrete values: §2.1's $L = 2$ walk-through uses $\alpha_
 | Symbol | Source | NVL72 + IB value |
 |---|---|---|
 | $\mathrm{BW}\_{\mathrm{inner}}$ | NVLink Gen5 (per direction; 1800 GB/s bidirectional aggregate) | $\approx 900\\,\mathrm{GB/s}$ |
-| $\mathrm{BW}\_{\mathrm{outer}}$ | ConnectX-8 at 800 Gb/s XDR (a GB200-generation ConnectX-7 at 400 Gb/s NDR gives 50 GB/s) | $\approx 100\\,\mathrm{GB/s}$ |
+| $\mathrm{BW}\_{\mathrm{outer}}$ | ConnectX-8 at 800 Gb/s XDR [DGX-SUPERPOD-GB300] (a GB200-generation ConnectX-7 at 400 Gb/s NDR gives 50 GB/s [DGX-SUPERPOD-GB200]) | $\approx 100\\,\mathrm{GB/s}$ |
 
 In multi-tier formulas each phase's BW term uses its own tier's BW — inner phases at $\mathrm{BW}\_{\mathrm{inner}}$, outer phases at $\mathrm{BW}\_{\mathrm{outer}}$ (§2.1). The outer tier is 9× slower per byte (18× with NDR NICs), which is why hierarchical schedules shrink the payload before it crosses.
 
@@ -277,7 +277,7 @@ These symbols carry through §2 unchanged.
 
 ## 2. Composition rules for hierarchical collectives
 
-**The core idea.** In single-tier, a collective like AR is one algorithm running over one fabric — pick a ring, a DBT, or Rabenseifner, evaluate with that fabric's $(\alpha, \mathrm{BW})$, done. In multi-tier, the same user-level collective often gets re-expressed as a **combination of different primitives running on different tiers**. A hierarchical AR isn't "run AR on tier 1, then AR on tier 2" — it's a sequence like **RS on the inner tier, AR on the outer tier, AG on the inner tier** that composes to the same result. The per-tier primitives need not be the same primitive the user asked for; they're chosen so each tier does the work it's best at, and so the outer tier sees as little data as possible. The idea is old in MPI: MagPIe for clustered wide-area systems [MAGPIE], the hierarchical collectives of MPICH2 [ZGGT09] and Open MPI's HAN framework [HAN] all split a collective into an intra-group phase and an inter-group phase so that the slow tier carries as little as possible.
+**The core idea.** In single-tier, a collective like AR is one algorithm running over one fabric — pick a ring, a DBT, or Rabenseifner, evaluate with that fabric's $(\alpha, \mathrm{BW})$, done. In multi-tier, the same user-level collective often gets re-expressed as a **combination of different primitives running on different tiers**. A hierarchical AR isn't "run AR on tier 1, then AR on tier 2" — it's a sequence like **RS on the inner tier, AR on the outer tier, AG on the inner tier** that composes to the same result. The per-tier primitives need not be the same primitive the user asked for; they're chosen so each tier does the work it's best at, and so the outer tier sees as little data as possible. The idea is old in MPI: MagPIe for clustered wide-area systems [MAGPIE], the hierarchical collectives of MPICH2 [ZGGT09] and Open MPI's HAN framework [HAN] all organize a collective around the machine's hierarchy — one level inside a group, one between groups.
 
 **Why this re-expression is possible (and necessary).** Two reasons.
 
@@ -450,7 +450,7 @@ This is why MoE expert parallelism placement on the inner-most fabric (NVL72 NVS
 
 **Hierarchical composition helps when:**
 
-- **BW is tier-mismatched.** If the inner tier is 10–20× faster than the outer (NVLink vs InfiniBand), doing as much of the reduction as possible inside the inner tier shrinks the outer tier's payload from $M$ to $ML/N$. For a 2-tier system with $L = 16$ groups and $N = 1024$, the outer tier carries only $M/64$ of the original payload — a 64× reduction in cross-tier BW demand.
+- **BW is tier-mismatched.** If the inner tier is 9–18× faster than the outer (NVLink vs XDR or NDR InfiniBand), doing as much of the reduction as possible inside the inner tier shrinks the outer tier's payload from $M$ to $ML/N$. For a 2-tier system with $L = 16$ groups and $N = 1024$, the outer tier carries only $M/64$ of the original payload — a 64× reduction in cross-tier BW demand.
 - **Latency is tier-mismatched.** Inner-tier α is ~0.5 μs (NVSwitch), outer-tier α is ~2–8 μs (IB; $\alpha_{\mathrm{leaf}}$ to $\alpha_{\mathrm{spine}}$, §1.2), so doing most algorithmic hops on the inner tier wins both on the α term and on the BW term.
 
 **Hierarchical composition hurts when:**
@@ -466,7 +466,7 @@ This is why MoE expert parallelism placement on the inner-most fabric (NVL72 NVS
 
 ![Hierarchical all-reduce cost versus number of outer groups for five outer-tier bandwidths](assets/charts/hier_ar_vs_outer_bw.svg)
 
-*Figure: the same sweep for five outer-tier bandwidths (other parameters as above). Because the outer phase carries only $ML/N$, the optimum barely moves: $L = 8$ from 10 GB/s up to 450 GB/s, $L = 16$ only at parity with the inner tier (900 GB/s). From `code/notebooks/04_hierarchical_partitioning.ipynb`.*
+*Figure: the same sweep for five outer-tier bandwidths (other parameters as above). Because the outer phase carries only $ML/N$, the optimum does not move: $L = 8$ at every outer bandwidth below the inner tier's, and at parity (900 GB/s) $L = 8$ and $L = 16$ tie exactly at 126.5 μs. From `code/notebooks/04_hierarchical_partitioning.ipynb`.*
 
 ---
 
@@ -483,14 +483,14 @@ The two compose: a deployment with INC at both tiers gets both α collapses, plu
 
 Two cross-cuts:
 
-- **§3.1**: SHARP at either or both tiers collapses the corresponding phase of every reduction-or-replication primitive — uniform structural saving across AR, AG, RS, BC, Reduce. A2A is the lone exception (no fit on SHARP-class hardware; a hardware A2A would be a separate primitive, and no shipping switch documents one — `04_in_network_collectives.md` §1.3).
+- **§3.1**: SHARP at either or both tiers collapses the corresponding phase of every reduction-or-replication primitive — uniform structural saving across AR, AG, RS, BC, Reduce. A2A is the lone exception (no fit on SHARP-class hardware; a hardware A2A would be a separate primitive, and none is documented as shipping — `04_in_network_collectives.md` §1.3).
 - **§3.2**: per-tier η coefficients (NVSwitch crossbar contention, IB Clos oversubscription) feed back into §2.1's hierarchical formulas, modifying realized cost without changing the algorithm shape.
 
 ### 3.1 SHARP composes at any tier of the hierarchy
 
 The SHARP family collapses $n_\alpha$ to ~2 on a single-switch host fabric (`04_in_network_collectives.md` §1) and to $2k$ across a $k$-tier aggregation tree (`04_in_network_collectives.md` §2.2). In a hierarchical schedule (§2.1), SHARP can be installed independently at the inner tier, the outer tier, or both — each replacing its tier's endpoint-driven phase with an INC operation at switch cut-through latency $\alpha_{\mathrm{switch}}$. Tiers without INC continue to use software DBT or ring.
 
-**Per-tier SHARP impact on the α term**, at production scale ($N_{\mathrm{inner}} = 72$, $L = 32$, $\alpha_{\mathrm{inner}} = 0.5\\,\mu$s, $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{spine}} = 8\\,\mu$s; switch latencies $\alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.2\\,\mu$s for NVLS, $\alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 0.5\\,\mu$s for Quantum SHARP). Every INC operation costs one hop into the switch and one hop out — $2\\,\alpha_{\mathrm{sw}}$ on the single-switch inner tier, $2k\\,\alpha_{\mathrm{sw}}$ on the outer Clos, where the $L = 32$ deployment of Appendix A has $k = 2$ switch tiers (leaf + spine):
+**Per-tier SHARP impact on the α term**, at production scale ($N_{\mathrm{inner}} = 72$, $L = 32$, $\alpha_{\mathrm{inner}} = 0.5\\,\mu$s, $\alpha_{\mathrm{outer}} = \alpha_{\mathrm{spine}} = 8\\,\mu$s; switch latencies $\alpha_{\mathrm{sw}}^{\mathrm{inner}} \approx 0.2\\,\mu$s for NVLS, $\alpha_{\mathrm{sw}}^{\mathrm{outer}} \approx 0.5\\,\mu$s for Quantum SHARP — a round figure just above the 200–400 ns cut-through range of `04_in_network_collectives.md` §2.2). Every INC operation costs one hop into the switch and one hop out — $2\\,\alpha_{\mathrm{sw}}$ on the single-switch inner tier, $2k\\,\alpha_{\mathrm{sw}}$ on the outer Clos, where the $L = 32$ deployment of Appendix A has $k = 2$ switch tiers (leaf + spine):
 
 | Primitive | Inner α (log-depth software) | Inner α (NVLS) | Outer α (log-depth software) | Outer α (Quantum SHARP) |
 |---|---|---|---|---|
@@ -643,7 +643,7 @@ Pod-side fan-out (one NVL72 → 4 rail-ToRs):
       └─────────────────┼────────┼────────┼────────┼─────────────┘
                         │        │        │        │
                         ▼        ▼        ▼        ▼
-                     ┌──┬───┐ ┌──┬───┐ ┌──┬───┐ ┌──┬───┐
+                     ┌──┴───┐ ┌──┴───┐ ┌──┴───┐ ┌──┴───┐
                      │rail-0│ │rail-1│ │rail-2│ │rail-3│   ← 4 distinct (separate) leaf-ToRs
                      │Leaf 0│ │Leaf 0│ │Leaf 0│ │Leaf 0│     that this pod connects to (rail-i
                      │ 144p │ │ 144p │ │ 144p │ │ 144p │     Leaf 0 for i = 0, 1, 2, 3). At L
@@ -663,7 +663,7 @@ ToR-side aggregate (one rail-i leaf-ToR ← 4 NVL72 pods — repeated 8× per ra
       └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘       the other 54 NICs/pod
            │            │            │            │             land on rails j ≠ i
            ▼            ▼            ▼            ▼            (4 × 18 = 72 NICs total
-      ┌────┬────────────┬────────────┬────────────┬────┐       into one rail-i leaf)
+      ┌────┴────────────┴────────────┴────────────┴────┐       into one rail-i leaf)
       │       rail-i Leaf 0 (X800 Q3400, 144 ports)    │
       │  72 down (= 4 × 18 NICs) + 72 up (→ 18 spines) │
       └────────────────────────┬───────────────────────┘
@@ -673,8 +673,8 @@ ToR-side aggregate (one rail-i leaf-ToR ← 4 NVL72 pods — repeated 8× per ra
 
 The two views are reciprocal: the fan-out shows where one pod's 4 NIC bundles land; the aggregate shows what one leaf-ToR collects. The 18 NICs each pod contributes to a rail-$i$ leaf-ToR are precisely that pod's **slot-$i$ NICs** (NIC_$i$ across trays 0–17) — A.1's rail rule, applied 4 times. So `rail-i Leaf 0` is aggregating *same-slot peers across 4 different pods*: 18 GPU_$i$ from pod 0, 18 from pod 1, 18 from pod 2, 18 from pod 3 — 72 same-slot GPUs total. Across the cluster:
 
-- **8 leaf-groups per rail** × **4 rails** = 32 leaf-groups cluster-wide; each leaf-group is one (rail, 4-pod) tuple wired to one leaf-ToR. In NVIDIA's layout each 8-rack SU holds two leaf-groups per rail. Scaling beyond $L = 32$ adds more leaf-groups per rail (and more spines accordingly — see A.4).
-- **One pod participates in 4 leaf-groups simultaneously**, one per rail. Pod 0's rail-0 NICs land on rail-0 Leaf 0; its rail-1 NICs land on rail-1 Leaf 0; etc. The pod's failure domain spans 4 leaves rather than 1 — a small intentional blast-radius decoupling vs the §1.1 Layout 1 ("pod-local ToR") alternative.
+- **8 leaf-groups** of 4 pods, each wired to one leaf-ToR on each of the **4 rails** = 32 leaf-ToRs cluster-wide. In NVIDIA's layout each 8-rack SU holds two leaf-groups. Scaling beyond $L = 32$ adds more leaf-groups (and more spines accordingly — see A.4).
+- **One pod reaches 4 leaf-ToRs**, one per rail. Pod 0's rail-0 NICs land on rail-0 Leaf 0; its rail-1 NICs land on rail-1 Leaf 0; etc. The pod's failure domain spans 4 leaves rather than 1 — a small intentional blast-radius decoupling vs the §1.1 Layout 1 ("pod-local ToR") alternative.
 
 ### A.3 Up-side micro-architecture: leaf-ToRs → the shared spine layer
 
@@ -712,7 +712,7 @@ Each leaf-ToR's 72 up-ports reach the spine layer. NVIDIA's reference architectu
        └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Every spine sees every rail — the rails are separate at the leaf tier, not at the spine tier.** A leaf switch only ever carries the NICs of one rail, so two same-rail pods under one leaf never leave that rail (2 hops). The spine layer is common: a rail-$i$ leaf and a rail-$j$ leaf are both wired to all 18 spines, so an IB path between rails exists (4 hops, through any spine) — the path NVIDIA's reference architecture describes when it says that traffic between different rails traverses the spine layer [DGX-SUPERPOD-GB300]. Cross-rail traffic can instead stay off the spine by using NVLink as a rail bridge (NCCL's PXN; §1.1's "Cross-pod, cross-rail" bullet). The same two-tier design keeps growing until the spine radix runs out: at NVIDIA's 16-SU maximum (128 leaves, 72 spines, 9,216 GPUs) each leaf has one cable to each spine, and a 144-port spine can serve at most 144 leaves — 10,368 NICs [QX800]. Beyond that a third tier is needed.
+**Every spine sees every rail — the rails are separate at the leaf tier, not at the spine tier.** A leaf switch only ever carries the NICs of one rail, so two same-rail pods under one leaf never leave that rail (2 hops). The spine layer is common: a rail-$i$ leaf and a rail-$j$ leaf are both wired to all 18 spines, so an IB path between rails exists (4 hops, through any spine) — the path NVIDIA's reference architecture describes when it says that traffic "between different compute racks, or between different rails, traverses the spine layer" [DGX-SUPERPOD-GB300]. (The same sentence appears in the GB200 reference architecture, where every rack has its own leaf; with four racks per leaf, racks under one leaf need no spine.) Cross-rail traffic can instead stay off the spine by using NVLink as a rail bridge (NCCL's PXN; §1.1's "Cross-pod, cross-rail" bullet). The same two-tier design keeps growing until the spine radix runs out: at NVIDIA's 16-SU maximum (128 leaves, 72 spines, 9,216 GPUs) each leaf has one cable to each spine, and a 144-port spine can serve at most 144 leaves — 10,368 NICs [QX800]. Beyond that a third tier is needed.
 
 ### A.4 Putting it together: cluster overview and switch counts
 
@@ -776,9 +776,9 @@ NVL72 SuperPOD full cluster topology at L = 32 — 2304 GPUs across 4 rails
 **Switch-count derivation** at $L = 32$:
 
 - NICs to absorb **per rail**: $32\\,\text{pods} \times 18\\,\text{NICs/pod} = 576\\,\text{NICs}$.
-- Each X800 leaf at $s = 1$: $72$ down-ports (NICs) + $72$ up-ports (spines) = $144$ → **leaves per rail = $576 / 72 = 8$** (matches A.2's "8 leaf-groups per rail"), 32 leaves over the 4 rails.
+- Each X800 leaf at $s = 1$: $72$ down-ports (NICs) + $72$ up-ports (spines) = $144$ → **leaves per rail = $576 / 72 = 8$** (one per leaf-group of A.2), 32 leaves over the 4 rails.
 - The 32 leaves have $32 \times 72 = 2304$ up-ports in total. A non-blocking spine layer has to terminate all of them, so with 144-port spines it needs at least $2304 / 144 = 16$ switches.
-- NVIDIA's reference architecture specifies **18 spines** for this size [DGX-SUPERPOD-GB300]. 18 is the smallest count of at least 16 that divides a leaf's 72 up-ports evenly ($72 / 18 = 4$ cables to each spine); each spine then uses $32 \times 4 = 128$ of its 144 ports (matches A.3's inverse view).
+- NVIDIA's reference architecture specifies **18 spines** for this size [DGX-SUPERPOD-GB300]. 18 is the smallest count of at least 16 that divides a leaf's 72 up-ports evenly ($72 / 18 = 4$ cables to each spine — an even spread inferred from the counts, as A.3 notes, not a quoted figure); each spine then uses $32 \times 4 = 128$ of its 144 ports (matches A.3's inverse view).
 
 **Cluster totals.**
 

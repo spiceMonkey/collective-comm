@@ -160,7 +160,7 @@ INC moves the reduction or replication into the switch ASIC (NVLS / Quantum SHAR
 | BC | multicast xbar | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim \log_2 N / 2$ ×; BW: 1× |
 | A2A | crossbar scatter-gather (HW A2A; hypothetical) | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ (per-port bound) | α: $\sim (N-1)/2$ ×; BW: 1× |
 
-**Scope.** SHARP-class INC is single-switch-domain (NVLS) or SHARP-enabled aggregation tree (Quantum SHARP). HW A2A is a what-if primitive — no shipping switch documents one. Cross-domain traffic falls back to software DBT / ring.
+**Scope.** SHARP-class INC is single-switch-domain (NVLS) or SHARP-enabled aggregation tree (Quantum SHARP). HW A2A is a what-if primitive — no vendor documents an all-to-all collective in a shipping switch (the nearest is an undefined "ScatterGather" operation in Quantum-X800's SHARPv4; `04_in_network_collectives.md` §1.3). Cross-domain traffic falls back to software DBT / ring.
 
 ---
 

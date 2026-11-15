@@ -545,8 +545,9 @@ def inc_a2a(M: float, G: int, alpha_s: float, bw_Bps: float) -> float:
 
         t = 2·α_switch + (G-1)/G · M / BW
 
-    A what-if primitive: no shipping switch documents a hardware A2A (Broadcom's
-    Tomahawk Ultra lists AllReduce, Broadcast and AllGather). It would collapse
+    A what-if primitive: no vendor documents a hardware all-to-all collective
+    (Tomahawk Ultra names AllReduce, Broadcast and AllGather; Quantum-X800's
+    SHARPv4 lists an undefined "ScatterGather"). It would collapse
     software A2A's (G-1) endpoint-driven scheduling rounds into one
     switch-driven transaction. Per-rank wire-side bytes are unchanged from
     software pairwise (the switch routes verbatim — no aggregation, no

@@ -37,7 +37,7 @@ If you've ever wondered:
 | In-network reduction (switch ALU) | Reduce, RS | NVLS, Quantum SHARP | none — α only | `inc_reduce`, `inc_reduce_scatter` |
 | Switch multicast | BC, AG | NVLS, Quantum SHARP, Tomahawk Ultra | none — α only | `inc_broadcast`, `inc_all_gather` |
 | ALU + multicast, fused | AR | NVLS, Quantum SHARP, Tomahawk Ultra | `2·M/BW` → `M/BW` | `inc_all_reduce` |
-| Crossbar scatter-gather (hardware A2A) | A2A | none shipping — a what-if primitive | none — α only | `inc_a2a` |
+| Crossbar scatter-gather (hardware A2A) | A2A | none documented — a what-if primitive | none — α only | `inc_a2a` |
 
 **Algorithms per collective**
 
@@ -152,17 +152,17 @@ print(f"INC AR (realistic): {inc_all_reduce(M, alpha_eff, bw_eff) * 1e6:.1f} μs
 
 ### 3. Hierarchical AR for an NVL72 + IB cluster
 
-For 576 GPUs split as **8 racks × 72 GPUs/rack** (`L=8`, inner = NVLink, outer = IB):
+For 288 GPUs split as **4 racks × 72 GPUs/rack** (`L=4`, inner = NVLink, outer = IB; four NVL72s can share one leaf switch per rail):
 
 ```python
 from core.collective_cost import hierarchical_all_reduce_ring_ring
 
 t = hierarchical_all_reduce_ring_ring(
-    M=16e6, N=576, L=8,                  # 8 outer groups, 72 inner each
+    M=16e6, N=288, L=4,                  # 4 outer groups, 72 inner each
     alpha_inner=0.5e-6, bw_inner=900e9,  # NVLink-class
     alpha_outer=2.0e-6, bw_outer=100e9,  # 800 Gb/s XDR InfiniBand, same-leaf path
 )
-print(f"hierarchical AR: {t * 1e6:.1f} μs")  # 138.0
+print(f"hierarchical AR: {t * 1e6:.1f} μs")  # 121.4
 ```
 
 The outer sub-AR ships only the *telescoped* payload `M·L/N` — see `documentation/modeling/03_hierarchical_topologies.md` §2.1 for the derivation.

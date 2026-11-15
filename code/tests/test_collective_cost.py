@@ -156,12 +156,12 @@ class Hierarchical(unittest.TestCase):
 
     def test_degenerate_and_invalid(self):
         flat = cc.ring_all_reduce(M, 512, ALPHA, BW)
-        self.assertEqual(cc.hierarchical_all_reduce_ring_ring(M, 512, 1, ALPHA, BW, 1e-6, 50e9), flat)
+        self.assertEqual(cc.hierarchical_all_reduce_ring_ring(M, 512, 1, ALPHA, BW, 2e-6, 100e9), flat)
         for bad_l in (7, 0, 1024):
             with self.assertRaises(ValueError):
-                cc.hierarchical_all_reduce_ring_ring(M, 512, bad_l, ALPHA, BW, 1e-6, 50e9)
+                cc.hierarchical_all_reduce_ring_ring(M, 512, bad_l, ALPHA, BW, 2e-6, 100e9)
             with self.assertRaises(ValueError):
-                cc.hierarchical_all_gather_ring_ring(M, 512, bad_l, ALPHA, BW, 1e-6, 50e9)
+                cc.hierarchical_all_gather_ring_ring(M, 512, bad_l, ALPHA, BW, 2e-6, 100e9)
 
 
 class Contention(unittest.TestCase):
@@ -174,7 +174,7 @@ class Contention(unittest.TestCase):
     def test_realistic_cost_rejects_per_tier_helpers(self):
         with self.assertRaises(TypeError):
             cc.realistic_cost(cc.hierarchical_all_reduce_ring_ring,
-                              M, 512, 8, ALPHA, BW, 1e-6, 50e9, eta_beta=0.8)
+                              M, 512, 8, ALPHA, BW, 2e-6, 100e9, eta_beta=0.8)
 
     def test_profiles(self):
         self.assertEqual(ETA_PROFILES["crossbar"], (1.00, 0.80))
