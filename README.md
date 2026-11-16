@@ -12,6 +12,8 @@ If you've ever wondered:
 
 **📖 Read the tutorial online:** <https://spicemonkey.github.io/collective-comm/>
 
+**📑 Overview slides (PDF, 19 pages):** [overview_slides.pdf](documentation/modeling/assets/overview_slides.pdf) — what is modeled, with a diagram and the cost equations for each fabric. Also served with the book at <https://spicemonkey.github.io/collective-comm/assets/overview_slides.pdf>.
+
 ---
 
 ## What's modeled

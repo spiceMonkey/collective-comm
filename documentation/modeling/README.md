@@ -5,6 +5,8 @@
 
 A walkthrough of collective communication for distributed GPU workloads — from the topology-free α-β cost model down to how dynamic contention shifts the Pareto rankings on real clusters. The primitives and cost models here apply to LLM training, LLM inference, and HPC workloads alike; where worked examples use inference-scale message sizes or LLM parallelism mappings, they're concrete illustrations, not restrictions on scope. Every file in this folder is self-contained; you can start with `01_collective_algorithms.md`, or jump straight to any topic-specific note once you know the vocabulary. `00_summary.md` is a one-page cheatsheet of symbols, primitives, and the canonical α-β formulas for readers who already know the material and want fast lookup.
 
+For a quick visual overview of the whole series, see the [overview slides (PDF, 19 pages)](assets/overview_slides.pdf): one diagram and the cost equations for each fabric.
+
 ![The fabrics and in-network primitives covered by the series: star, k-D torus, k-D and full mesh, fat-tree / Clos, hierarchical scale-up + scale-out, and in-network collectives](assets/topologies_modeled.svg)
 
 ## Reading order
