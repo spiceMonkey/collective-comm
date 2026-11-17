@@ -1,6 +1,8 @@
-# collective_comm
+# collective_comm — Collective Communication Cost Modeling
 
-A first-principles framework for analyzing **collective-communication trade-offs** in distributed AI clusters: α-β cost models, topology-aware algorithms, in-network collectives, and contention coefficients. Designed as a **tutorial + cost-analysis toolkit** — not a runtime library.
+collective_comm is a lightweight, first-principles analytical framework for the cost of collective communication in distributed AI clusters. It predicts how long an all-reduce, all-gather, reduce-scatter or all-to-all takes on a given fabric *before* you build or rent it — from the collective, the algorithm, the message size, the group size, and a per-hop latency and port bandwidth for each tier of the fabric.
+
+An α-β cost model (`t = n_α·α + n_β·M/BW`: hops on the critical path plus bytes through each port) extended with topology-aware schedules on torus and mesh fabrics, hierarchical scale-up + scale-out composition, in-network collectives, and per-fabric contention coefficients. Pure functions over plain numbers, standard library only. Designed as a **tutorial + cost-analysis toolkit** — not a runtime library.
 
 If you've ever wondered:
 - *Why does NCCL pick DBT for small messages but ring for large ones?*
@@ -10,9 +12,11 @@ If you've ever wondered:
 
 …this repo gives you the equations, calibrations, and runnable notebooks to answer them.
 
-**📖 Read the tutorial online:** <https://spicemonkey.github.io/collective-comm/>
+This README is a navigation guide; the methodology is published as the [Collective Communication Cost Modeling book](https://spicemonkey.github.io/collective-comm/) (see **Tutorial** below), starting with [`01_collective_algorithms.md`](https://spicemonkey.github.io/collective-comm/01_collective_algorithms.html); the one-page cheatsheet is [`00_summary.md`](https://spicemonkey.github.io/collective-comm/00_summary.html).
 
-**📑 Overview slides (PDF, 19 pages):** [overview_slides.pdf](documentation/modeling/assets/overview_slides.pdf) — what is modeled, with a diagram and the cost equations for each fabric. Also served with the book at <https://spicemonkey.github.io/collective-comm/assets/overview_slides.pdf>.
+**Overview slides:** [`documentation/modeling/assets/overview_slides.pdf`](documentation/modeling/assets/overview_slides.pdf) — an introductory slide deck on what the model covers and what it leaves out: the two terms of every cost, the collectives it prices, ring and tree schedules, each fabric with its drawing and cost formulas, in-network collectives, contention, and two sweeps as examples of exploring a design choice. Also served with the book at <https://spicemonkey.github.io/collective-comm/assets/overview_slides.pdf>.
+
+**Tutorial:** [**Collective Communication Cost Modeling**](https://spicemonkey.github.io/collective-comm/) — a walkthrough from the topology-free α-β model of each collective algorithm, through topology mapping (star, torus, mesh) and hierarchical fabrics (fat-tree / Clos, scale-up pods in a scale-out network), to in-network collectives and contention, with a one-page cheatsheet of symbols and formulas.
 
 ---
 
