@@ -24,7 +24,9 @@ class PrimitiveSpec:
 
 # ---------------------------------------------------------------------------
 # Registry — one row per primitive at default flags. Pipelined / mesh variants
-# are added as separate rows so the table reads as a wide cross-section.
+# are added as separate rows so the table reads as a wide cross-section; every
+# function with a ``pipelined`` flag has a row for each setting, because the
+# specification quotes the pipelined forms.
 # ---------------------------------------------------------------------------
 
 PRIMITIVES: list[PrimitiveSpec] = [
@@ -60,6 +62,12 @@ PRIMITIVES: list[PrimitiveSpec] = [
     PrimitiveSpec(
         "BC", "torus_broadcast", "02_topology_mapping.md §3.2",
         lambda a: cc.torus_broadcast(a.M, a.dims, a.alpha, a.bw),
+        notes="P=1",
+    ),
+    PrimitiveSpec(
+        "BC", "torus_broadcast (pipelined)", "02_topology_mapping.md §3.2 / §5.1",
+        lambda a: cc.torus_broadcast(a.M, a.dims, a.alpha, a.bw, pipelined=True),
+        notes="P→P*",
     ),
     PrimitiveSpec(
         "BC", "torus_broadcast (mesh)", "02_topology_mapping.md §4.2",
@@ -73,8 +81,18 @@ PRIMITIVES: list[PrimitiveSpec] = [
         lambda a: cc.ring_reduce(a.M, a.G, a.alpha, a.bw),
     ),
     PrimitiveSpec(
+        "Reduce", "ring_reduce (pipelined)", "01_collective_algorithms.md §4.1 / App. C",
+        lambda a: cc.ring_reduce(a.M, a.G, a.alpha, a.bw, pipelined=True),
+        notes="P→P*",
+    ),
+    PrimitiveSpec(
         "Reduce", "tree_reduce", "01_collective_algorithms.md §4.2",
         lambda a: cc.tree_reduce(a.M, a.G, a.alpha, a.bw),
+    ),
+    PrimitiveSpec(
+        "Reduce", "tree_reduce (pipelined)", "01_collective_algorithms.md §4.2 / App. C",
+        lambda a: cc.tree_reduce(a.M, a.G, a.alpha, a.bw, pipelined=True),
+        notes="P→P*",
     ),
     PrimitiveSpec(
         "Reduce", "inc_reduce", "04_in_network_collectives.md §1.1",
@@ -83,6 +101,12 @@ PRIMITIVES: list[PrimitiveSpec] = [
     PrimitiveSpec(
         "Reduce", "torus_reduce", "02_topology_mapping.md §3.3",
         lambda a: cc.torus_reduce(a.M, a.dims, a.alpha, a.bw),
+        notes="P=1",
+    ),
+    PrimitiveSpec(
+        "Reduce", "torus_reduce (pipelined)", "02_topology_mapping.md §3.3 / §5.1",
+        lambda a: cc.torus_reduce(a.M, a.dims, a.alpha, a.bw, pipelined=True),
+        notes="P→P*",
     ),
 
     # --- All-reduce -------------------------------------------------------
@@ -194,7 +218,7 @@ PRIMITIVES: list[PrimitiveSpec] = [
         "Hierarchical", "hierarchical_all_reduce_ring_ring",
         "03_hierarchical_topologies.md §2.1",
         lambda a: cc.hierarchical_all_reduce_ring_ring(
-            a.M, a.N_hier, a.L,
+            a.M, a.n_hier, a.L,
             a.alpha_inner, a.bw_inner,
             a.alpha_outer, a.bw_outer,
         ),
@@ -204,7 +228,7 @@ PRIMITIVES: list[PrimitiveSpec] = [
         "Hierarchical", "hierarchical_all_gather_ring_ring",
         "03_hierarchical_topologies.md §2.1",
         lambda a: cc.hierarchical_all_gather_ring_ring(
-            a.M, a.N_hier, a.L,
+            a.M, a.n_hier, a.L,
             a.alpha_inner, a.bw_inner,
             a.alpha_outer, a.bw_outer,
         ),
@@ -214,7 +238,7 @@ PRIMITIVES: list[PrimitiveSpec] = [
         "Hierarchical", "hierarchical_reduce_scatter_ring_ring",
         "03_hierarchical_topologies.md §2.1",
         lambda a: cc.hierarchical_reduce_scatter_ring_ring(
-            a.M, a.N_hier, a.L,
+            a.M, a.n_hier, a.L,
             a.alpha_inner, a.bw_inner,
             a.alpha_outer, a.bw_outer,
         ),
@@ -227,9 +251,11 @@ def run_all(anchors: Anchors | None = None) -> "list[dict]":
     """Evaluate every entry in ``PRIMITIVES`` at the given anchor and return rows.
 
     Each row: ``{group, name, doc_ref, notes, t_us}``. No external deps —
-    callers can wrap in ``pandas.DataFrame(...)`` or print directly.
+    callers can wrap in ``pandas.DataFrame(...)`` or print directly. Raises
+    ``ValueError`` if the anchor's fields are inconsistent (``Anchors.validate``).
     """
     a = anchors or Anchors()
+    a.validate()
     rows = []
     for spec in PRIMITIVES:
         t_s = spec.call(a)

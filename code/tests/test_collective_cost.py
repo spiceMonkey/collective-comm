@@ -9,6 +9,7 @@ The numeric oracles are the canonical anchors and worked examples in
 touching the expected value.
 """
 
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -26,7 +27,14 @@ def us(t: float) -> float:
     return t * 1e6
 
 
-class CanonicalAnchors(unittest.TestCase):
+class Case(unittest.TestCase):
+    def near(self, got, want):
+        """Equal to within rounding. ``assertAlmostEqual``'s default (5e-8 in absolute
+        terms) is wider than some of the microsecond-scale terms compared here."""
+        self.assertTrue(math.isclose(got, want, rel_tol=1e-12, abs_tol=1e-15), f"{got!r} != {want!r}")
+
+
+class CanonicalAnchors(Case):
     """04_in_network_collectives.md §3.1 and 05_contention_and_congestion.md §5.1."""
 
     def test_all_anchors_within_tolerance(self):
@@ -41,19 +49,19 @@ class CanonicalAnchors(unittest.TestCase):
         self.assertAlmostEqual(us(cc.torus_all_reduce(M, DIMS, ALPHA, BW)), 56.486, places=2)
 
 
-class DoubleBinaryTree(unittest.TestCase):
+class DoubleBinaryTree(Case):
     """01_collective_algorithms.md §5.2: single-port n_β = 2, multi-port halves it."""
 
     def test_port_models(self):
         log_g = 9
         base = M / BW
-        self.assertAlmostEqual(cc.tree_all_reduce(M, G, ALPHA, BW),
+        self.near(cc.tree_all_reduce(M, G, ALPHA, BW),
                                2 * log_g * ALPHA + 2 * log_g * base)
-        self.assertAlmostEqual(cc.tree_all_reduce(M, G, ALPHA, BW, pipelined=True),
+        self.near(cc.tree_all_reduce(M, G, ALPHA, BW, pipelined=True),
                                2 * log_g * ALPHA + 2 * base)
-        self.assertAlmostEqual(cc.tree_all_reduce(M, G, ALPHA, BW, multi_port=True),
+        self.near(cc.tree_all_reduce(M, G, ALPHA, BW, multi_port=True),
                                2 * log_g * ALPHA + log_g * base)
-        self.assertAlmostEqual(cc.tree_all_reduce(M, G, ALPHA, BW, pipelined=True, multi_port=True),
+        self.near(cc.tree_all_reduce(M, G, ALPHA, BW, pipelined=True, multi_port=True),
                                2 * log_g * ALPHA + base)
 
     def test_inc_halves_software_bw_term(self):
@@ -66,14 +74,14 @@ class DoubleBinaryTree(unittest.TestCase):
         for n, log_n, expect_gb in ((72, 7, 2.07), (512, 9, 115.7)):
             m_star = n * (n - 1 - log_n) * ALPHA * BW
             self.assertAlmostEqual(m_star / 1e9, expect_gb, delta=0.05)
-            self.assertAlmostEqual(cc.ring_all_reduce(m_star, n, ALPHA, BW),
+            self.near(cc.ring_all_reduce(m_star, n, ALPHA, BW),
                                    cc.tree_all_reduce(m_star, n, ALPHA, BW, pipelined=True))
 
 
-class AllToAll(unittest.TestCase):
+class AllToAll(Case):
     def test_ring_relay_is_one_dim_torus(self):
         for n in (2, 3, 8, 64, 512):
-            self.assertAlmostEqual(cc.ring_relay_a2a(M, n, ALPHA, BW),
+            self.near(cc.ring_relay_a2a(M, n, ALPHA, BW),
                                    cc.torus_a2a(M, (n,), ALPHA, BW))
 
     def test_ring_relay_bisection_load(self):
@@ -97,43 +105,44 @@ class AllToAll(unittest.TestCase):
                             load[node if sign > 0 else n + node] += w
             return max(load)
         for n in (4, 8, 16, 64):
-            self.assertAlmostEqual(busiest(n), n * n / 8)  # chunks of size M/n → (n/8)·M
+            self.near(busiest(n), n * n / 8)  # chunks of size M/n → (n/8)·M
+            self.near(cc.ring_relay_a2a(1.0, n, 0.0, 1.0), busiest(n) / n)
         # G = 2: a single link carries M/2 each way.
-        self.assertAlmostEqual(cc.ring_relay_a2a(M, 2, 0.0, BW), 0.5 * M / BW)
+        self.near(cc.ring_relay_a2a(M, 2, 0.0, BW), 0.5 * M / BW)
 
     def test_torus_coefficients(self):
         base = M / BW
-        self.assertAlmostEqual(cc.torus_a2a(M, (8, 8, 8), 0.0, BW), 1.0 * base)
-        self.assertAlmostEqual(cc.torus_a2a(M, (16, 16, 16), 0.0, BW), 2.0 * base)
-        self.assertAlmostEqual(cc.torus_a2a(M, (4, 4, 4), 0.0, BW), 0.5 * base)
-        self.assertAlmostEqual(cc.torus_a2a(M, (8, 8, 8), 0.0, BW, wraparound=False), 2.0 * base)
+        self.near(cc.torus_a2a(M, (8, 8, 8), 0.0, BW), 1.0 * base)
+        self.near(cc.torus_a2a(M, (16, 16, 16), 0.0, BW), 2.0 * base)
+        self.near(cc.torus_a2a(M, (4, 4, 4), 0.0, BW), 0.5 * base)
+        self.near(cc.torus_a2a(M, (8, 8, 8), 0.0, BW, wraparound=False), 2.0 * base)
         # d = 2: wraparound link coincides with the direct link → mesh cut.
-        self.assertAlmostEqual(cc.torus_a2a(M, (2, 2, 2), 0.0, BW), 0.5 * base)
+        self.near(cc.torus_a2a(M, (2, 2, 2), 0.0, BW), 0.5 * base)
         self.assertEqual(cc.torus_a2a(M, (2, 2, 2), ALPHA, BW),
                          cc.torus_a2a(M, (2, 2, 2), ALPHA, BW, wraparound=False))
         # 3×2: the size-2 dim is the worst cut (1/2 > 3/8).
-        self.assertAlmostEqual(cc.torus_a2a(M, (3, 2), 0.0, BW), 0.5 * base)
-        self.assertAlmostEqual(cc.torus_a2a(M, (8, 2), 0.0, BW), 1.0 * base)
+        self.near(cc.torus_a2a(M, (3, 2), 0.0, BW), 0.5 * base)
+        self.near(cc.torus_a2a(M, (8, 2), 0.0, BW), 1.0 * base)
 
     def test_inc_alpha_is_two_switch_hops(self):
         base = M / BW
         for fn in (cc.inc_broadcast, cc.inc_reduce, cc.inc_all_reduce):
-            self.assertAlmostEqual(fn(M, ALPHA, BW), 2 * ALPHA + base)
+            self.near(fn(M, ALPHA, BW), 2 * ALPHA + base)
         for fn in (cc.inc_all_gather, cc.inc_reduce_scatter, cc.inc_a2a):
-            self.assertAlmostEqual(fn(M, G, ALPHA, BW), 2 * ALPHA + 511 / 512 * base)
+            self.near(fn(M, G, ALPHA, BW), 2 * ALPHA + 511 / 512 * base)
 
     def test_alpha_terms(self):
-        self.assertAlmostEqual(cc.torus_a2a(0.0, DIMS, ALPHA, BW), 12 * ALPHA)
-        self.assertAlmostEqual(cc.torus_a2a(0.0, DIMS, ALPHA, BW, wraparound=False), 21 * ALPHA)
-        self.assertAlmostEqual(cc.ring_relay_a2a(0.0, G, ALPHA, BW), 256 * ALPHA)
-        self.assertAlmostEqual(cc.pairwise_a2a(0.0, G, ALPHA, BW), 511 * ALPHA)
-        self.assertAlmostEqual(cc.bruck_a2a(M, G, ALPHA, BW), 9 * ALPHA + 4.5 * M / BW)
+        self.near(cc.torus_a2a(0.0, DIMS, ALPHA, BW), 12 * ALPHA)
+        self.near(cc.torus_a2a(0.0, DIMS, ALPHA, BW, wraparound=False), 21 * ALPHA)
+        self.near(cc.ring_relay_a2a(0.0, G, ALPHA, BW), 256 * ALPHA)
+        self.near(cc.pairwise_a2a(0.0, G, ALPHA, BW), 511 * ALPHA)
+        self.near(cc.bruck_a2a(M, G, ALPHA, BW), 9 * ALPHA + 4.5 * M / BW)
 
     def test_inc_a2a(self):
         self.assertAlmostEqual(us(cc.inc_a2a(M, G, ALPHA, BW)), 1.0 + 511 / 512 * 17.7778, places=2)
 
 
-class Hierarchical(unittest.TestCase):
+class Hierarchical(Case):
     """03_hierarchical_topologies.md §2.1 case study: N=144, L=2, NVL72 + IB."""
 
     ARGS = dict(M=16e6, N=144, L=2, alpha_inner=0.5e-6, bw_inner=900e9,
@@ -144,15 +153,15 @@ class Hierarchical(unittest.TestCase):
 
     def test_ag_and_rs_are_half_of_ar(self):
         ar = cc.hierarchical_all_reduce_ring_ring(**self.ARGS)
-        self.assertAlmostEqual(cc.hierarchical_all_gather_ring_ring(**self.ARGS), ar / 2)
-        self.assertAlmostEqual(cc.hierarchical_reduce_scatter_ring_ring(**self.ARGS), ar / 2)
+        self.near(cc.hierarchical_all_gather_ring_ring(**self.ARGS), ar / 2)
+        self.near(cc.hierarchical_reduce_scatter_ring_ring(**self.ARGS), ar / 2)
 
     def test_closed_form(self):
         a = self.ARGS
         n, l, m = a["N"], a["L"], a["M"]
         alpha = (n // l - 1) * a["alpha_inner"] + (l - 1) * a["alpha_outer"]
         bw = (n - l) / n * m / a["bw_inner"] + (l - 1) / n * m / a["bw_outer"]
-        self.assertAlmostEqual(cc.hierarchical_all_gather_ring_ring(**a), alpha + bw)
+        self.near(cc.hierarchical_all_gather_ring_ring(**a), alpha + bw)
 
     def test_degenerate_and_invalid(self):
         flat = cc.ring_all_reduce(M, 512, ALPHA, BW)
@@ -162,9 +171,11 @@ class Hierarchical(unittest.TestCase):
                 cc.hierarchical_all_reduce_ring_ring(M, 512, bad_l, ALPHA, BW, 2e-6, 100e9)
             with self.assertRaises(ValueError):
                 cc.hierarchical_all_gather_ring_ring(M, 512, bad_l, ALPHA, BW, 2e-6, 100e9)
+            with self.assertRaises(ValueError):
+                cc.hierarchical_reduce_scatter_ring_ring(M, 512, bad_l, ALPHA, BW, 2e-6, 100e9)
 
 
-class Contention(unittest.TestCase):
+class Contention(Case):
     def test_realistic_cost_flag_position_irrelevant(self):
         kw = cc.realistic_cost(cc.tree_all_reduce, M, G, ALPHA, BW, pipelined=True, eta_beta=0.8)
         pos = cc.realistic_cost(cc.tree_all_reduce, M, G, ALPHA, BW, True, eta_beta=0.8)
@@ -182,7 +193,7 @@ class Contention(unittest.TestCase):
         self.assertEqual(ETA_PROFILES["torus"], (1.20, 0.60))
 
 
-class Guards(unittest.TestCase):
+class Guards(Case):
     def test_noop_group(self):
         self.assertEqual(cc.ring_all_reduce(M, 1, ALPHA, BW), 0.0)
         self.assertEqual(cc.torus_all_reduce(M, (1,), ALPHA, BW), 0.0)
@@ -193,6 +204,30 @@ class Guards(unittest.TestCase):
                      lambda: cc.torus_a2a(M, DIMS, ALPHA, -1.0)):
             with self.assertRaises(ValueError):
                 call()
+
+    def test_malformed_inputs_are_errors(self):
+        nan = float("nan")
+        for call in (lambda: cc.ring_all_reduce(M, G, ALPHA, nan),
+                     lambda: cc.ring_all_reduce(-M, G, ALPHA, BW),
+                     lambda: cc.ring_all_reduce(M, G, -ALPHA, BW),
+                     lambda: cc.ring_all_reduce(M, 1.5, ALPHA, BW),
+                     lambda: cc.tree_all_reduce(M, -4, ALPHA, BW),
+                     lambda: cc.ring_relay_a2a(M, 2.5, ALPHA, BW),
+                     lambda: cc.torus_all_reduce(M, (-2, -2), ALPHA, BW),
+                     lambda: cc.torus_a2a(M, (0, 4), ALPHA, BW),
+                     lambda: cc.torus_broadcast(M, (8, 2.5), ALPHA, BW),
+                     lambda: cc.hierarchical_all_reduce_ring_ring(M, 6, 1.5, ALPHA, BW, 2e-6, 100e9),
+                     lambda: cc.apply_eta(ALPHA, BW, 1.0, 0.0),
+                     lambda: cc.apply_eta(ALPHA, BW, -1.0, 0.8)):
+            with self.assertRaises(ValueError):
+                call()
+
+    def test_dims_may_be_any_iterable(self):
+        want = cc.torus_all_reduce(M, DIMS, ALPHA, BW)
+        self.assertEqual(cc.torus_all_reduce(M, (d for d in DIMS), ALPHA, BW), want)
+        self.assertEqual(cc.torus_all_reduce(M, list(DIMS), ALPHA, BW), want)
+        self.assertEqual(cc.torus_a2a(M, (), ALPHA, BW), 0.0)
+        self.assertEqual(cc.ring_relay_a2a(M, 0, ALPHA, BW), 0.0)
 
     def test_registry_runs(self):
         rows = run_all(Anchors())

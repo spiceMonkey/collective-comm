@@ -64,25 +64,32 @@ More detailed diagrams: [scale-up + scale-out paths for one server](documentatio
 
 ```
 collective-comm/
+├── README.md
+├── LICENSE
+├── book.toml                 ← mdBook configuration (the book is built from documentation/modeling/)
+├── theme/                    ← mdBook theme overrides (page template, CSS, MathJax config)
+├── .github/workflows/mdbook.yml  ← builds the book and deploys it to GitHub Pages
 ├── documentation/modeling/   ← the spec — every cost formula derives here
-│   ├── 00_summary.md         ← entry point / cheatsheet
-│   ├── 01_collective_algorithms.md
+│   ├── README.md             ← the book's introduction: reading order, file index
+│   ├── SUMMARY.md            ← mdBook table of contents
+│   ├── 00_summary.md         ← one-page cheatsheet
+│   ├── 01_collective_algorithms.md   ← start here
 │   ├── 02_topology_mapping.md
 │   ├── 03_hierarchical_topologies.md
 │   ├── 04_in_network_collectives.md
 │   ├── 05_contention_and_congestion.md
 │   ├── references.md
-│   └── assets/               ← figures (SVG diagrams, charts/, social card)
+│   └── assets/               ← figures (SVG diagrams, charts/, social card) and overview_slides.pdf
 └── code/
     ├── core/collective_cost.py   ← α-β cost primitives (BC, Reduce, AR, AG/RS, A2A)
-    ├── tests/                    ← stdlib unittest regression suite (canonical anchors)
+    ├── tests/                    ← stdlib unittest regression suite (canonical anchors; hop and payload counts per function)
     ├── util/                     ← anchors, primitive registry, sweep helpers, chart style
     └── notebooks/
         ├── 00_api_enumeration.ipynb           ← every primitive at the canonical anchor
         ├── 01_payload_sweep.ipynb             ← M from 1 KB → 1 GB; α/BW regime crossover
         ├── 02_group_topology_sweep.ipynb      ← G scaling; torus dimensionality
         ├── 03_eta_sensitivity.ipynb           ← realistic η contention; fat-tree oversub
-        ├── 04_hierarchical_partitioning.ipynb ← two-tier composition; NVL72 + IB sweep
+        ├── 04_hierarchical_partitioning.ipynb ← two-tier composition; outer-group count L swept at N=512
         └── export_figures.py                  ← re-exports the notebook charts used in the docs
 ```
 
@@ -90,7 +97,7 @@ collective-comm/
 
 ## Modeling docs (the source of truth)
 
-The series under `documentation/modeling/` is the contract the code implements. Read it before editing any cost function — start with `documentation/modeling/00_summary.md` for the cheatsheet view.
+The series under `documentation/modeling/` is the contract the code implements. Read it before editing any cost function — start with `documentation/modeling/01_collective_algorithms.md`; `documentation/modeling/00_summary.md` is the one-page cheatsheet.
 
 | Doc | Covers |
 |---|---|
@@ -106,8 +113,8 @@ The series under `documentation/modeling/` is the contract the code implements. 
 ## Quick start
 
 ```bash
-# One-time setup (Python 3.14)
-python3.14 -m venv .venv
+# One-time setup (Python 3.10 or newer; run so far on 3.12, 3.13 and 3.14)
+python3 -m venv .venv
 .venv/bin/pip install jupyterlab pandas matplotlib ipykernel
 
 # Open the tutorial notebooks
@@ -183,7 +190,7 @@ for row in run_all(a):
     print(f"{row['name']:42s} {row['t_us']:9.2f} μs")
 ```
 
-Each `Anchors()` field (M, G, alpha, bw, dims, L, alpha_inner, bw_inner, ...) is overridable; pass the modified anchor back into `run_all` to re-evaluate every primitive.
+Each `Anchors()` field (M, G, alpha, bw, dims, L, alpha_inner, bw_inner, ...) is overridable, but the fields describe one operating point: when you change `G`, change `dims` (its product must equal `G`) and `L` (it must divide the hierarchical rank count, which is `G` unless `N_hier` is set) with it — for example `Anchors(G=64, dims=(4, 4, 4))`. Pass the modified anchor back into `run_all` to re-evaluate every primitive.
 
 ---
 
@@ -206,7 +213,7 @@ The notebooks reproduce these exactly — useful as test oracles when changing c
 |---|---|---|
 | star + NVLS (INC) | nvls (η_α=1.00, η_β=0.52) | 35 μs |
 | star + DBT (pipelined) | crossbar (η_α=1.00, η_β=0.80) | 53 μs |
-| torus 8³ + dim-decomp | torus (η_α=1.20, η_β=0.60) | 84 μs |
+| torus 8³ + dim-decomp | torus (η_α=1.20, η_β=0.60; an assumed placeholder, not a measurement) | 84 μs |
 
 ---
 
@@ -214,7 +221,7 @@ The notebooks reproduce these exactly — useful as test oracles when changing c
 
 - **Docs are the source of truth.** When a formula in the docs has a "practice caveat," the code still implements the pure α-β formula — caveats belong in docstrings, not numerical results.
 - **Core stays stdlib-only.** Notebooks may import pandas / matplotlib.
-- **η profiles are per-fabric calibrations**, not free dials. `nvls` only applies to INC AR; `torus` only to torus algorithms; `crossbar` to software AR on NVSwitch. See `documentation/modeling/05_contention_and_congestion.md` §4.1.
+- **η profiles are per-fabric values**, not free dials. `nvls` only applies to INC AR; `torus` only to torus algorithms (its two values are assumed placeholders, not a measurement — concurrent groups sharing links and a mild layout penalty, not a fully off-prefix placement); `crossbar` to software collectives on NVSwitch (AR, AG / RS, A2A) and — as an assumption, for lack of a separate calibration — to INC AG / RS. See `documentation/modeling/05_contention_and_congestion.md` §4.1 and §5.4.
 - **Pipelined vs non-pipelined** is exposed as a `pipelined: bool = False` flag on BC / Reduce / DBT AR. Default = literal P=1 schedule; `pipelined=True` = the asymptotic P→P\* limit (Appendix C of `documentation/modeling/01_collective_algorithms.md`).
 - **`BW` is the per-rank port bandwidth.** On a single-port star, DBT AR moves 2M through each rank's port, so `tree_all_reduce(..., pipelined=True)` costs `2⌈log₂ N⌉·α + 2·M/BW` (the 45 μs anchor). Pass `multi_port=True` for fabrics where every tree edge has its own full-BW link (up to four per rank); both DBT BW coefficients then halve.
 

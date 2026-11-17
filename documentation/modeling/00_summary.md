@@ -24,7 +24,7 @@ A one-page reference for the symbols, primitives, and canonical α-β cost formu
 |---|---|---|
 | $\alpha$ | per-hop latency (setup + switch traversal + propagation) | `01_collective_algorithms.md` §1 |
 | $M$ | message size in bytes | `01_collective_algorithms.md` §1 |
-| $\mathrm{BW}$ | per-rank port bandwidth, one direction (per-link bandwidth on a torus / mesh) | `01_collective_algorithms.md` §1 |
+| $\mathrm{BW}$ | per-rank port bandwidth, one direction (per-link bandwidth on a torus / mesh) | `01_collective_algorithms.md` §1; port convention in §5.2 and `02_topology_mapping.md` §2 |
 | $N$ | rank count in the collective group | `01_collective_algorithms.md` §2 |
 | $V_i$ | payload held by rank $i$ (size $M$) | `01_collective_algorithms.md` §2 |
 | $n_\alpha$ | latency-term count (sequential synchronization hops) | `01_collective_algorithms.md` §1 |
@@ -33,10 +33,10 @@ A one-page reference for the symbols, primitives, and canonical α-β cost formu
 | $D$ | network diameter (worst-case hop count between rank pair) | `02_topology_mapping.md` §1, App. B |
 | $d_i$ | dim-$i$ rank count on a torus / mesh ($\prod_i d_i = N$) | `02_topology_mapping.md` §1.2, App. B |
 | $d_{\max}$ | $\max_i d_i$ — controls torus A2A bisection penalty | `02_topology_mapping.md` §3.6 |
-| $k$ | torus / mesh dimensionality (number of dims) | `02_topology_mapping.md` §3 |
-| $\alpha_{\mathrm{switch}}$ | switch cut-through latency (~100–400 ns; $\ll \alpha$) | `04_in_network_collectives.md` §1.1 |
+| $k$ | torus / mesh dimensionality (number of dims); also the number of switch tiers an INC operation crosses, and the port count of the switches in a $k$-ary fat-tree | `02_topology_mapping.md` §3; `04_in_network_collectives.md` §2.2; `03_hierarchical_topologies.md` App. B |
+| $\alpha_{\mathrm{switch}}$ | switch cut-through latency (~100–400 ns, an estimate; the $N = 512$ worked numbers charge each INC hop the full $\alpha = 0.5\\,\mu$s) | `04_in_network_collectives.md` §1.1 |
 | $s$ | fat-tree / Clos oversubscription ratio at a tier boundary ($s \geq 1$) | `03_hierarchical_topologies.md` §1 |
-| $L$ | outer-tier rank count in a 2-tier hierarchy ($N = L \cdot N_{\mathrm{inner}}$) | `03_hierarchical_topologies.md` §2.1 |
+| $L$ | outer-tier rank count in a 2-tier hierarchy ($N = L \cdot N_{\mathrm{inner}}$); also the sequential-step depth of a pipelined schedule | `03_hierarchical_topologies.md` §2.1; `01_collective_algorithms.md` App. C.3 |
 | $\eta_\alpha \geq 1$ | realistic α-side contention coefficient (inflation factor) | `05_contention_and_congestion.md` §4 |
 | $\eta_\beta \in (0, 1]$ | realistic BW-side contention coefficient (utilization factor) | `05_contention_and_congestion.md` §4 |
 | algbw | algorithm bandwidth: $M / t$ (per-call effective rate) | `01_collective_algorithms.md` App. D |
@@ -82,7 +82,7 @@ A primitive's BW-side lower bound is set by the cut-through structure:
 
 ## 4. Per-algorithm costs (topology-free)
 
-Costs assume an abstract fully-connected fabric (every rank can reach every other in 1 hop) with one full-duplex port of bandwidth $\mathrm{BW}$ per rank. "Raw" is the non-pipelined $P = 1$ schedule; "pipelined" is the $P \to P^{\ast}$ limit of `01_collective_algorithms.md` App. C. Topology corrections come from §5.
+Costs assume an abstract fully-connected fabric (every rank can reach every other in 1 hop) with one full-duplex port of bandwidth $\mathrm{BW}$ per rank. Steps are one partner per rank, except in the two-tree and DBT rows, where a rank exchanges a segment with each of its (at most four) fixed tree neighbours in one step, the segments sharing the port, and α is charged once per tree level (`01_collective_algorithms.md` App. C.4). "Raw" is the non-pipelined $P = 1$ schedule; "pipelined" is the $P \to P^{\ast}$ limit of `01_collective_algorithms.md` App. C. Topology corrections come from §5.
 
 | Algorithm | Primitive | $n_\alpha$ | $n_\beta$ | Source |
 |---|---|---|---|---|
@@ -98,7 +98,7 @@ Costs assume an abstract fully-connected fabric (every rank can reach every othe
 | PAT (parallel aggregated trees) | AG / RS | $\lceil \log_2 N \rceil$ | $(N-1)/N \to 1$ | `01_collective_algorithms.md` App. A |
 | Recursive-doubling AG / -halving RS | AG / RS | $\lceil \log_2 N \rceil$ | $(N-1)/N \to 1$ | `01_collective_algorithms.md` App. B.4 |
 | Pairwise direct-send | A2A | $(N-1)$ | $(N-1)/N$ | `01_collective_algorithms.md` §7.2 |
-| Ring-relay (bidirectional ring) | A2A | $\lfloor N/2 \rfloor$ | $N/8$ (ring bisection bound; $\mathrm{BW}$ per ring link, two links per rank) | `01_collective_algorithms.md` §7.1 |
+| Ring-relay (bidirectional ring) | A2A | $\lfloor N/2 \rfloor$ | $N/8$ (ring bisection bound; $\mathrm{BW}$ per ring link, two links per rank; $N \geq 3$ — a 2-rank ring is a single link, with coefficient $1/2$; $n_\alpha$ counts hops of the longest path with chunks streamed back to back, a different convention from pairwise's one α per chunk — `01_collective_algorithms.md` §7.3) | `01_collective_algorithms.md` §7.1; `02_topology_mapping.md` §3.6 |
 | Bruck (log-round) | A2A | $\lceil \log_2 N \rceil$ | $\lceil \log_2 N \rceil / 2$ | `01_collective_algorithms.md` App. B.5 |
 
 **Headline AR formulas:**
@@ -118,8 +118,8 @@ Single-tier scale-up fabrics. AR formula entries; AG / RS halve both terms; BC /
 | Topology | $n_\alpha$ (AR) | $n_\beta$ (AR) | A2A BW term | Source |
 |---|---|---|---|---|
 | Star (single switch) | $2(N-1)$ ring / $2 \lceil \log_2 N \rceil$ DBT | $2(N-1)/N$ ring / $2$ DBT | $(N-1)/N \cdot M/\mathrm{BW}$ pairwise | `02_topology_mapping.md` §2 |
-| Torus ($k$-D, $\prod d_i = N$, dim-decomposed ring) | $2 \sum_i (d_i - 1)$ | $2(N-1)/N \to 2$ | $(d_{\max}/8) \cdot M/\mathrm{BW}$ ($1\times$ at $8^3$, $2\times$ at $16^3$) | `02_topology_mapping.md` §3.4, §3.6 |
-| Torus dim-decomposed Rabenseifner (not shipped; any-to-any best case — on ring wiring $\alpha$ returns to $2\sum_i (d_i - 1)$ and the BW coefficient rises for $d_i \geq 8$; see the App. A caveat) | $2 \sum_i \lceil \log_2 d_i \rceil$ | $2(N-1)/N \to 2$ | — | `02_topology_mapping.md` App. A |
+| Torus ($k$-D, $\prod d_i = N$, dim-decomposed ring) | $2 \sum_i (d_i - 1)$ | $2(N-1)/N \to 2$ | $(d_{\max}/8) \cdot M/\mathrm{BW}$ ($1\times$ at $8^3$, $2\times$ at $16^3$; a size-2 dimension counts $1/2$ rather than $d_i/8$, which matters only when $d_{\max} \leq 3$) | `02_topology_mapping.md` §3.4, §3.6 |
+| Torus dim-decomposed Rabenseifner (algorithmic-step counts for an any-to-any substrate; on ring wiring they hold as physical-hop counts only up to $d_i = 4$, where a 4-ring is a 2-cube — AWS Neuron's RDH algorithm treats Trainium's 2D torus as a 4D hypercube [NEURON-CC]. For $d_i \geq 8$ some partners are more than one hop apart, so the per-hop α count rises and multi-hop exchanges share links: at $d_i = 8$, at best 5 hops per dim-phase instead of 3 and a per-dim BW coefficient of $5/4$ instead of $7/8$. See the App. A caveat) | $2 \sum_i \lceil \log_2 d_i \rceil$ | $2(N-1)/N \to 2$ | — | `02_topology_mapping.md` App. A |
 | Full mesh | identical to star at $\alpha \to \alpha_{\mathrm{link}}$ | $2(N-1)/N \to 2$ | $(N-1)/N \cdot M/\mathrm{BW}$ | `02_topology_mapping.md` §4.1 |
 | $k$-D mesh (no wraparound) | $2 \sum_i (d_i - 1)$ | $2(N-1)/N \to 2$ | $(d_{\max}/4) \cdot M/\mathrm{BW}$ — 2× worse than torus | `02_topology_mapping.md` §4.2 |
 
@@ -135,7 +135,7 @@ $$t_{\mathrm{AR}}^{\mathrm{hier}} \\;=\\; t_{\mathrm{RS,inner}}(M) \\;+\\; t_{\m
 
 The middle phase ships the *telescoped* payload $ML/N$ — which is why hierarchical AR scales: the costliest tier (typically outer) carries less data.
 
-**Oversubscription at any tier boundary** multiplies that tier's BW term by $s$ (equivalent to $\eta_\beta = 1/s$ on cross-tier traffic):
+**Oversubscription at a tier boundary** multiplies by $s$ the BW term of the traffic that crosses that boundary (equivalent to $\eta_\beta = 1/s$ on cross-tier traffic); traffic that stays below the boundary — same-leaf traffic — is unaffected. For an outer sub-AR whose traffic all crosses the oversubscribed boundary:
 
 $$t_{\mathrm{BW,outer}} \\;=\\; n_\beta^{\mathrm{outer}} \cdot s \cdot \frac{M\\,L/N}{\mathrm{BW}\_{\mathrm{outer}}}$$
 
@@ -143,7 +143,7 @@ with $n_\beta^{\mathrm{outer}}$ the outer sub-AR's own coefficient ($2(L-1)/L$ f
 
 **AG and RS are the two halves of AR:** $\mathrm{RS} \equiv$ inner RS → outer RS and $\mathrm{AG} \equiv$ outer AG → inner AG. In both, the outer tier ships only the telescoped $ML/N$, and each costs half of the hierarchical AR.
 
-A2A is the outlier: it cannot telescope, so per-tier ranks see $(N-1)/N \cdot M/\mathrm{BW}$ at the outer tier's bisection rate. See `03_hierarchical_topologies.md` §2.2.
+A2A is the outlier: it cannot telescope — each rank still ships its full $(N-1)/N \cdot M$ bytes, of which $(1 - 1/L) \cdot M$ cross the tier boundary at the outer tier's rate. See `03_hierarchical_topologies.md` §2.2.
 
 ---
 
@@ -160,7 +160,7 @@ INC moves the reduction or replication into the switch ASIC (NVLS / Quantum SHAR
 | BC | multicast xbar | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ | α: $\sim \log_2 N / 2$ ×; BW: 1× |
 | A2A | crossbar scatter-gather (HW A2A; hypothetical) | $\sim 2\\,\alpha_{\mathrm{switch}}$ | $\mathrm{BW}$ (per-port bound) | α: $\sim (N-1)/2$ ×; BW: 1× |
 
-**Scope.** SHARP-class INC is single-switch-domain (NVLS) or SHARP-enabled aggregation tree (Quantum SHARP). HW A2A is a what-if primitive — no vendor documents an all-to-all collective in a shipping switch (the nearest is an undefined "ScatterGather" operation in Quantum-X800's SHARPv4; `04_in_network_collectives.md` §1.3). Cross-domain traffic falls back to software DBT / ring.
+**Scope.** SHARP-class INC is single-switch-domain (NVLS) or SHARP-enabled aggregation tree (Quantum SHARP). HW A2A is a what-if primitive — no vendor documents an all-to-all collective executed in a shipping switch (the nearest are an undefined "ScatterGather" operation in Quantum-X800's SHARPv4 and an `MPI_Alltoall` hardware engine that NVIDIA lists for the ConnectX-8 SuperNIC — in the adapter, not the switch [QX800]; `04_in_network_collectives.md` §1.3). Traffic that leaves the switch domain needs NVLS paired with IB SHARP or with a software tree (NCCL 2.18.1 and later), or falls back to software DBT / ring (`04_in_network_collectives.md` §2.1).
 
 ---
 
@@ -176,7 +176,7 @@ with $\eta_\alpha \geq 1$ and $\eta_\beta \in (0, 1]$.
 |---|---|---|---|
 | Crossbar (NVLink + NVSwitch, no SHARP) | 1.00 | 0.80 | community-reported AR busbw ≈ 360 of 450 GB/s on 8-GPU NVLink4 servers |
 | NVLS (NVLink SHARP, in-network reduction) | 1.00 | 0.52 | community-reported NVLS busbw ≈ 470 vs ≈ 360 GB/s without (1.3× lift) |
-| Torus (off-prefix + concurrent groups) | 1.20 | 0.60 | TPU v4 twisted-vs-untwisted 1.63× upper bound |
+| Torus (assumed placeholder: concurrent groups sharing links, mild layout penalty) | 1.20 | 0.60 | not a measurement: 0.60 ≈ 1/1.63 borrows its size from TPU v4's twisted-vs-regular torus all-to-all throughput ratio on a 4 × 4 × 8 slice (a wiring effect, not contention) [TPU-V4]; 1.20 is an assumed 20% latency inflation with no public source; a fully off-prefix placement is not covered (`05_contention_and_congestion.md` §3.1) |
 | Fat-tree / Clos upper tier at oversubscription $s$ | 1.10–1.30 | $\min(\eta_\beta^{\mathrm{hw}}, 1/s)$ | structural (`05_contention_and_congestion.md` §4.2) |
 
 **Per-tier η in a hierarchy.** Each phase of the §6 hierarchical decomposition uses its own tier's $(\eta_\alpha^{\mathrm{tier}}, \eta_\beta^{\mathrm{tier}})$.

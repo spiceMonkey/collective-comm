@@ -36,8 +36,8 @@ _FAMILY_KEYWORDS = (
     ("inc", ("inc", "nvls", "hardware")),
     ("torus", ("torus",)),
     ("rabenseifner", ("rabenseifner",)),
-    ("tree", ("dbt", "rec-doubling", "rec-halving", "pat", "bruck")),
-    ("ring", ("ring", "pairwise")),
+    ("tree", ("dbt", "tree", "rec-doubling", "rec-halving", "doubling", "halving", "pat", "bruck")),
+    ("ring", ("ring", "ring-ring", "pairwise")),
 )
 
 

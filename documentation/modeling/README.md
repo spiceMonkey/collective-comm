@@ -9,6 +9,8 @@ For a quick visual overview of the whole series, see the [overview slides](asset
 
 ![The fabrics and in-network primitives covered by the series: star, k-D torus, k-D and full mesh, fat-tree / Clos, hierarchical scale-up + scale-out, and in-network collectives](assets/topologies_modeled.svg)
 
+*The hierarchical panel draws one leaf / ToR per pod (the pod-local layout); the rail-optimized layout of the NVL72 SuperPOD case study is in `03_hierarchical_topologies.md` §1.1 and App. A.*
+
 ## Reading order
 
 ```
@@ -38,11 +40,12 @@ Read `04_in_network_collectives.md` for SHARP's $O(N) \to O(1)$ hop-count collap
 | File | Topic | Prereq |
 |---|---|---|
 | `00_summary.md` | One-page cheatsheet: symbol table, seven primitives, per-algorithm $(n_\alpha, n_\beta)$ table, per-topology specializations, hierarchical composition rule, INC effects, η-realistic form | familiarity with the rest of the series |
-| `01_collective_algorithms.md` | α-β cost model; seven primitives (BC, Reduce, AR, RS, AG, A2A, P2P); binomial / pipelined BC / Reduce; ring / tree / recursive-doubling / Rabenseifner AR; mapping to TP/EP/SP/PP; algbw/busbw conventions | None |
-| `02_topology_mapping.md` | Three-topology catalog of single-tier scale-up fabrics: star, torus, mesh. Per-topology cost derivations; torus dim-decomp AR with 2×2 worked example; per-topology cost summary (§5.1) | `01_collective_algorithms.md` |
+| `01_collective_algorithms.md` | α-β cost model; seven primitives (BC, Reduce, AR, RS, AG, A2A, P2P); binomial / pipelined BC / Reduce; ring / tree / recursive-doubling / Rabenseifner AR; mapping to DP/TP/EP/SP/PP; algbw/busbw conventions | None |
+| `02_topology_mapping.md` | Three-topology catalog of single-tier scale-up fabrics: star, torus, mesh. Per-topology cost derivations; torus dim-decomp AR with 2×2×2 worked example; per-topology cost summary (§5.1) | `01_collective_algorithms.md` |
 | `03_hierarchical_topologies.md` | Multi-tier Clos / fat-tree (§1, including the NVL72 SuperPOD case study); composition rules (RS → sub-AR → AG; A2A outlier) (§2); INC and per-tier $\eta$ in hierarchies (§3); rail-optimized SuperPOD topology and k-ary fat-tree appendices | `02_topology_mapping.md` |
 | `04_in_network_collectives.md` | SHARP / NVLS / Quantum SHARP — in-network reduction (switch ALU), switch multicast, and a hypothetical HW A2A as distinct capabilities; how $n_\alpha$ collapses from $O(N)$ to $O(1)$ | `01_collective_algorithms.md`, `02_topology_mapping.md` §2, `03_hierarchical_topologies.md` §1 |
 | `05_contention_and_congestion.md` | Contention coefficients $\eta_\alpha, \eta_\beta$; single-tier and per-tier calibration (fat-tree oversubscription $s \to \eta_\beta \leq 1/s$); re-running $N = 512$ under realistic $\eta$ | `02_topology_mapping.md` §5, `03_hierarchical_topologies.md` §1, `04_in_network_collectives.md` §3 |
+| `references.md` | Bibliography: primary sources by tag, tag → section map, verification notes and numerical caveats | None |
 
 ## Primitive → section map
 
@@ -75,9 +78,9 @@ Read `04_in_network_collectives.md` for SHARP's $O(N) \to O(1)$ hop-count collap
 
 ## What's *not* here
 
-- **Formal derivations** of the analytical cost model and its integration into a specific performance tool — those live in the tool-specific documentation, not in this general explainer series.
+- **Integration of the cost model into a specific performance tool** — the derivations are in these chapters; wiring them into a simulator or planner belongs to that tool's documentation, not to this general explainer series.
 - **Workload-specific end-to-end latency models** (inference decode / prefill, training iteration time) — the collectives here are one ingredient; the full pipeline treatment is out of scope.
-- **Runnable benchmarks or Pareto sweeps** — this folder is reading material. Calibration experiments belong wherever the reader's performance tool lives.
+- **Runnable code or measurements** — this folder is reading material. The cost functions, their tests and the sweep notebooks behind the charts live under `code/` in the repository; the series runs no benchmarks of its own (the NVLink $\eta$ calibration in `05_contention_and_congestion.md` §4.1 rests on publicly reported figures; its torus row is an assumed placeholder), and calibration experiments belong wherever the reader's performance tool lives.
 
 ## For readers vs for practitioners
 

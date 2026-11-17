@@ -1,6 +1,7 @@
 """Shared helpers for the collective_comm sweep notebooks.
 
-Keep this layer thin — anchors and a primitive registry only. Cost equations
+Keep this layer thin — anchors, a primitive registry, a sweep helper and the
+chart style. Cost equations
 live in ``code/core/collective_cost.py`` and the docs under
 ``documentation/modeling/`` remain the source of truth.
 """

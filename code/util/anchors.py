@@ -6,7 +6,7 @@ Defaults mirror the regression anchors from
 BW=900 GB/s. Override per-cell when sweeping.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -34,12 +34,33 @@ class Anchors:
     alpha_outer: float = 2.0e-6
     bw_outer: float = 100e9     # 800 Gb/s XDR NIC = 100 GB/s per direction
 
-    # Optional: total ranks for hierarchical helpers (defaults to G).
-    N_hier: int = field(default=0)
+    # Total ranks for the hierarchical helpers. 0 (the default) means "the same
+    # as G"; read the resolved value through the ``n_hier`` property.
+    N_hier: int = 0
 
     def __post_init__(self) -> None:
-        if self.N_hier == 0:
-            self.N_hier = self.G
+        self.validate()
+
+    @property
+    def n_hier(self) -> int:
+        """Rank count the hierarchical helpers use: ``N_hier``, or ``G`` when ``N_hier`` is 0."""
+        return self.N_hier or self.G
+
+    def validate(self) -> None:
+        """Raise ``ValueError`` if the fields do not describe one operating point.
+
+        ``dims`` must multiply out to ``G`` and ``L`` must divide ``n_hier``, so
+        change them together with ``G`` (``Anchors(G=64, dims=(4, 4, 4))``).
+        ``run_all`` calls this again, which covers fields changed after
+        construction.
+        """
+        ranks = 1
+        for d in self.dims:
+            ranks *= d
+        if ranks != self.G:
+            raise ValueError(f"dims={self.dims} describe {ranks} ranks but G={self.G}; change them together")
+        if self.L < 1 or self.n_hier % self.L != 0:
+            raise ValueError(f"L={self.L} must divide the hierarchical rank count {self.n_hier}")
 
 
 # Contention profiles from 05_contention_and_congestion.md §4.1.
@@ -48,7 +69,7 @@ ETA_PROFILES: dict[str, tuple[float, float]] = {
     "ideal":     (1.00, 1.00),
     "crossbar":  (1.00, 0.80),  # NVLink + NVSwitch, no SHARP
     "nvls":      (1.00, 0.52),  # NVLink SHARP in-network reduce
-    "torus":     (1.20, 0.60),  # off-prefix concurrent groups
+    "torus":     (1.20, 0.60),  # assumed placeholder, not a measurement: concurrent groups sharing links, mild layout penalty
 }
 
 

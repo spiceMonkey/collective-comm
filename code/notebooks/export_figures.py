@@ -52,6 +52,8 @@ def export(nb_name: str, names: list[str]) -> None:
 
     def show(*_args, **_kwargs) -> None:
         for num in plt.get_fignums():
+            if len(saved) >= len(names):
+                raise RuntimeError(f"{nb_name}: drew more than the {len(names)} figures listed")
             name = names[len(saved)]
             plt.figure(num).savefig(
                 OUT / f"{name}.svg", metadata={"Date": None}, bbox_inches="tight"
